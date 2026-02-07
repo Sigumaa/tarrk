@@ -4,7 +4,7 @@ from typing import Protocol
 
 import httpx
 
-from app.models import ChatMessage
+from app.models import ChatMessage, RoleType
 
 
 class LLMClient(Protocol):
@@ -12,13 +12,9 @@ class LLMClient(Protocol):
         self,
         *,
         model: str,
-        agent_id: str,
-        role_name: str,
-        topic: str,
-        background: str,
-        context: str,
-        language: str,
-        global_instruction: str,
+        display_name: str,
+        role_type: RoleType,
+        subject: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
@@ -43,13 +39,9 @@ class OpenRouterClient:
         self,
         *,
         model: str,
-        agent_id: str,
-        role_name: str,
-        topic: str,
-        background: str,
-        context: str,
-        language: str,
-        global_instruction: str,
+        display_name: str,
+        role_type: RoleType,
+        subject: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
@@ -58,13 +50,9 @@ class OpenRouterClient:
             raise RuntimeError("OPENROUTER_API_KEY is not set.")
 
         system_prompt = self._build_system_prompt(
-            agent_id=agent_id,
-            role_name=role_name,
-            topic=topic,
-            background=background,
-            context=context,
-            language=language,
-            global_instruction=global_instruction,
+            display_name=display_name,
+            role_type=role_type,
+            subject=subject,
             persona_prompt=persona_prompt,
         )
         payload = {
@@ -75,7 +63,6 @@ class OpenRouterClient:
                 {"role": "user", "content": self._render_history(history, priority_message)},
             ],
         }
-
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -116,10 +103,12 @@ class OpenRouterClient:
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             raise RuntimeError(f"OpenRouter response does not contain choices for model '{model}'.")
+
         message = choices[0].get("message", {})
         content = message.get("content")
         if content is None:
             raise RuntimeError(f"OpenRouter response has empty content for model '{model}'.")
+
         if isinstance(content, list):
             text_parts = [str(part.get("text", "")) for part in content if isinstance(part, dict)]
             reply = " ".join(part for part in text_parts if part).strip()
@@ -129,6 +118,44 @@ class OpenRouterClient:
         if not reply:
             raise RuntimeError("Model returned empty response.")
         return reply
+
+    @staticmethod
+    def _build_system_prompt(
+        *,
+        display_name: str,
+        role_type: RoleType,
+        subject: str,
+        persona_prompt: str,
+    ) -> str:
+        normalized_subject = subject.strip() or "与えられたお題"
+        role_text = "ファシリテーター" if role_type == "facilitator" else "議論参加者"
+        return (
+            "あなたは複数LLMの会話ルームにいます。\n"
+            "必ず日本語で話してください。\n"
+            f"あなたの表示名: {display_name}\n"
+            f"あなたの役割: {role_text}\n"
+            f"議論するお題: {normalized_subject}\n\n"
+            "共通ルール:\n"
+            "- 1ターンは2〜4文\n"
+            "- 直前の発言を受けてから自分の意見を述べる\n"
+            "- 具体性のある内容にする\n\n"
+            f"{persona_prompt}"
+        )
+
+    @staticmethod
+    def _render_history(history: list[ChatMessage], priority_message: ChatMessage | None) -> str:
+        lines: list[str] = []
+        for message in history:
+            lines.append(f"{message.speaker_id}: {message.content}")
+        if priority_message is not None:
+            lines.append(f"user(priority): {priority_message.content}")
+        if not lines:
+            return "まだ会話はありません。お題について議論を始めてください。"
+        rendered = "\n".join(lines[-24:])
+        max_chars = 6000
+        if len(rendered) <= max_chars:
+            return rendered
+        return "（履歴が長いため末尾のみ利用）\n" + rendered[-max_chars:]
 
     @staticmethod
     def _extract_error_detail(response: httpx.Response) -> str:
@@ -162,49 +189,3 @@ class OpenRouterClient:
             or "unsupported parameter" in lowered
             or "sampling" in lowered
         )
-
-    @staticmethod
-    def _build_system_prompt(
-        *,
-        agent_id: str,
-        role_name: str,
-        topic: str,
-        background: str,
-        context: str,
-        language: str,
-        global_instruction: str,
-        persona_prompt: str,
-    ) -> str:
-        normalized_background = background.strip() or "指定なし"
-        normalized_context = context.strip() or "指定なし"
-        normalized_instruction = global_instruction.strip() or "指定なし"
-        return (
-            "あなたは複数LLMによるラウンドテーブル会話の参加者です。\n"
-            f"会話言語: {language}。必ず {language} で発話してください。\n\n"
-            "会話の背景情報:\n"
-            f"- テーマ: {topic}\n"
-            f"- 背景: {normalized_background}\n"
-            f"- コンテキスト: {normalized_context}\n"
-            "\n"
-            "全体システム指示:\n"
-            f"{normalized_instruction}\n\n"
-            "あなたの担当:\n"
-            f"- ID: {agent_id}\n"
-            f"- 役割: {role_name}\n"
-            f"{persona_prompt}\n"
-        )
-
-    @staticmethod
-    def _render_history(history: list[ChatMessage], priority_message: ChatMessage | None) -> str:
-        lines: list[str] = []
-        for message in history:
-            lines.append(f"{message.speaker_id}: {message.content}")
-        if priority_message is not None:
-            lines.append(f"user(priority): {priority_message.content}")
-        if not lines:
-            return "まだ会話はありません。最初の発言をしてください。"
-        rendered = "\n".join(lines[-24:])
-        max_chars = 6000
-        if len(rendered) <= max_chars:
-            return rendered
-        return "（履歴が長いため末尾のみ利用）\n" + rendered[-max_chars:]

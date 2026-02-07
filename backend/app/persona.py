@@ -2,81 +2,63 @@ from __future__ import annotations
 
 from random import Random
 
-from app.models import AgentSpec
+from app.models import AgentSpec, RoleType
 
-ROLE_LIBRARY: tuple[dict[str, str], ...] = (
-    {
-        "name": "ファシリテーター",
-        "focus": "議論の流れを整理し、話題が散ったら主題に戻す",
-        "style": "要点を短くまとめ、次の論点を提案する",
-    },
-    {
-        "name": "実務家",
-        "focus": "実現可能性、コスト、運用負荷を具体化する",
-        "style": "手順・条件・トレードオフを明確に述べる",
-    },
-    {
-        "name": "懐疑派",
-        "focus": "見落としや反証可能性を指摘して議論を健全化する",
-        "style": "断定を避け、根拠確認の問いを投げる",
-    },
-    {
-        "name": "クリエイター",
-        "focus": "新規性の高い提案を出し、体験価値を押し上げる",
-        "style": "具体例と比喩を使って発想を広げる",
-    },
-    {
-        "name": "ユーザー代弁者",
-        "focus": "ユーザー感情、使いやすさ、継続利用の観点を守る",
-        "style": "体験の分かりやすさを優先して話す",
-    },
-    {
-        "name": "検証担当",
-        "focus": "主張をテスト観点へ落とし込み、検証方法を示す",
-        "style": "仮説・確認項目・判断条件をセットで述べる",
-    },
+CHARACTER_LIBRARY: tuple[str, ...] = (
+    "熱量の高い起業家。即実行を重視し、勢いのある言葉で提案する。",
+    "現実的なプロダクトマネージャー。優先順位と実現性で整理して話す。",
+    "皮肉屋だが頭の切れる批評家。弱点を突きつつ代替案も出す。",
+    "ユーザー目線のインタビュアー。感情と使い心地の観点を必ず入れる。",
+    "コストに厳しい運用担当。維持費と障害リスクを細かく見る。",
+    "発想が大胆なクリエイター。意外性のある案を具体例つきで出す。",
 )
 
-TURN_RULES: tuple[str, ...] = (
-    "1ターンは2〜4文で簡潔に話す",
-    "他のagentの発言を1つ受けてから自分の主張を述べる",
-    "最後に次の検討ポイントを1つ提示する",
-    "同じ主張の繰り返しを避ける",
+FACILITATOR_PROMPT = (
+    "あなたは議論の司会です。論点を整理し、脱線したらお題に戻してください。"
+    "各ターンで他者の要点を一言で要約し、次に考える観点を示してください。"
 )
 
 
-def assign_roles(agent_count: int, rng: Random) -> list[dict[str, str]]:
-    roles = list(ROLE_LIBRARY)
-    rng.shuffle(roles)
-    selected: list[dict[str, str]] = []
-    for index in range(agent_count):
-        selected.append(roles[index % len(roles)])
-    return selected
+def build_display_names(models: list[str]) -> list[str]:
+    counts: dict[str, int] = {}
+    names: list[str] = []
+    for model in models:
+        current = counts.get(model, 0) + 1
+        counts[model] = current
+        if current == 1:
+            names.append(model)
+        else:
+            names.append(f"{model} ({current})")
+    return names
 
 
-def build_persona(agent_id: str, role: dict[str, str], rng: Random) -> str:
-    turn_rule = rng.choice(TURN_RULES)
+def build_persona_prompt(*, role_type: RoleType, character_profile: str) -> str:
+    if role_type == "facilitator":
+        return FACILITATOR_PROMPT
+    normalized = character_profile.strip() or "率直で建設的な議論好きの参加者。"
     return (
-        f"あなたは {agent_id}。\n"
-        f"役割: {role['name']}\n"
-        f"注力点: {role['focus']}\n"
-        f"話し方: {role['style']}\n"
-        f"会話ルール: {turn_rule}"
+        "あなたは議論参加者です。キャラクター設定に沿って発言してください。"
+        f"キャラクター設定: {normalized}"
     )
 
 
 def generate_personas(models: list[str], rng: Random) -> list[AgentSpec]:
-    assigned_roles = assign_roles(agent_count=len(models), rng=rng)
     personas: list[AgentSpec] = []
+    display_names = build_display_names(models)
     for index, model in enumerate(models, start=1):
-        agent_id = f"agent-{index}"
-        role = assigned_roles[index - 1]
+        role_type: RoleType = "facilitator" if index == 1 else "character"
+        character_profile = "" if role_type == "facilitator" else rng.choice(CHARACTER_LIBRARY)
         personas.append(
             AgentSpec(
-                agent_id=agent_id,
+                agent_id=f"agent-{index}",
                 model=model,
-                role_name=role["name"],
-                persona_prompt=build_persona(agent_id=agent_id, role=role, rng=rng),
+                display_name=display_names[index - 1],
+                role_type=role_type,
+                character_profile=character_profile,
+                persona_prompt=build_persona_prompt(
+                    role_type=role_type,
+                    character_profile=character_profile,
+                ),
             )
         )
     return personas

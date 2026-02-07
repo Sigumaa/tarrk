@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import './App.css'
 
 type MessageRole = 'user' | 'agent'
+type RoleType = 'facilitator' | 'character'
 
 type ChatMessage = {
   role: MessageRole
@@ -11,32 +12,26 @@ type ChatMessage = {
   timestamp: string
 }
 
-type Persona = {
+type Agent = {
   agent_id: string
   model: string
-  role_name: string
+  display_name: string
+  role_type: RoleType
+  character_profile: string
   persona_prompt: string
 }
 
 type RoomPayload = {
   room_id: string
-  topic: string
-  background: string
-  context: string
-  language: string
-  global_instruction: string
-  personas: Persona[]
+  subject: string
+  agents: Agent[]
 }
 
 type SnapshotPayload = {
   room_id: string
-  topic: string
-  background: string
-  context: string
-  language: string
-  global_instruction: string
+  subject: string
   running: boolean
-  agents: Persona[]
+  agents: Agent[]
   messages: ChatMessage[]
 }
 
@@ -45,13 +40,9 @@ type SocketEvent = {
   payload: unknown
 }
 
-type InstructionDraft = {
-  topic: string
-  background: string
-  context: string
-  language: string
-  globalInstruction: string
-  personaPrompts: Record<string, string>
+type SetupDraft = {
+  subject: string
+  agents: Agent[]
 }
 
 const MODEL_OPTIONS = [
@@ -65,21 +56,6 @@ const MODEL_OPTIONS = [
   'x-ai/grok-4.1-fast',
 ]
 
-function createDraft(room: RoomPayload): InstructionDraft {
-  const personaPrompts: Record<string, string> = {}
-  for (const persona of room.personas) {
-    personaPrompts[persona.agent_id] = persona.persona_prompt
-  }
-  return {
-    topic: room.topic,
-    background: room.background,
-    context: room.context,
-    language: room.language,
-    globalInstruction: room.global_instruction,
-    personaPrompts,
-  }
-}
-
 async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
   const response = await fetch(url, init)
   if (!response.ok) {
@@ -89,6 +65,10 @@ async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+function cloneAgents(agents: Agent[]): Agent[] {
+  return agents.map((agent) => ({ ...agent }))
+}
+
 function App() {
   const apiBase = useMemo(
     () => (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, ''),
@@ -96,20 +76,14 @@ function App() {
   )
   const wsBase = useMemo(() => apiBase.replace(/^http/, 'ws'), [apiBase])
 
-  const [topic, setTopic] = useState('')
-  const [background, setBackground] = useState('')
-  const [context, setContext] = useState('')
-  const [language, setLanguage] = useState('日本語')
-  const [globalInstruction, setGlobalInstruction] = useState(
-    '会話は建設的に進め、理由や根拠を短く添えてください。',
-  )
+  const [subject, setSubject] = useState('')
   const [selectedModels, setSelectedModels] = useState<string[]>(MODEL_OPTIONS.slice(0, 3))
   const [room, setRoom] = useState<RoomPayload | null>(null)
-  const [instructionDraft, setInstructionDraft] = useState<InstructionDraft | null>(null)
+  const [draft, setDraft] = useState<SetupDraft | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [userInput, setUserInput] = useState('')
   const [running, setRunning] = useState(false)
-  const [status, setStatus] = useState('アイデアを入れて部屋を作成してください。')
+  const [status, setStatus] = useState('お題を入れて部屋を作成してください。')
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -127,26 +101,29 @@ function App() {
     const socket = new WebSocket(`${wsBase}/ws/room/${roomId}`)
 
     socket.onopen = () => {
-      setStatus('接続中です。開始前なら指示文を編集できます。')
+      setStatus('接続中です。開始前なら役割を編集できます。')
     }
 
     socket.onmessage = (event) => {
       const parsed = JSON.parse(event.data) as SocketEvent
       if (parsed.type === 'room_snapshot') {
         const payload = parsed.payload as SnapshotPayload
-        const snapshotRoom: RoomPayload = {
+        const nextRoom: RoomPayload = {
           room_id: payload.room_id,
-          topic: payload.topic,
-          background: payload.background ?? '',
-          context: payload.context ?? '',
-          language: payload.language ?? '日本語',
-          global_instruction: payload.global_instruction ?? '',
-          personas: payload.agents ?? [],
+          subject: payload.subject,
+          agents: payload.agents ?? [],
         }
-        setRoom(snapshotRoom)
+        setRoom(nextRoom)
         setRunning(payload.running)
         setMessages(payload.messages ?? [])
-        setInstructionDraft((current) => current ?? createDraft(snapshotRoom))
+        setDraft((current) =>
+          current
+            ? current
+            : {
+                subject: nextRoom.subject,
+                agents: cloneAgents(nextRoom.agents),
+              },
+        )
         return
       }
       if (parsed.type === 'room_state') {
@@ -182,9 +159,9 @@ function App() {
   }
 
   const createRoom = async () => {
-    const cleanTopic = topic.trim()
-    if (!cleanTopic) {
-      setStatus('テーマを入力してください。')
+    const cleanSubject = subject.trim()
+    if (!cleanSubject) {
+      setStatus('議論したいお題を入力してください。')
       return
     }
     if (selectedModels.length === 0) {
@@ -197,16 +174,12 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          topic: cleanTopic,
-          background: background.trim(),
-          context: context.trim(),
-          language: language.trim() || '日本語',
-          global_instruction: globalInstruction.trim(),
+          subject: cleanSubject,
           models: selectedModels,
         }),
       })
       setRoom(payload)
-      setInstructionDraft(createDraft(payload))
+      setDraft({ subject: payload.subject, agents: cloneAgents(payload.agents) })
       setMessages([])
       setRunning(false)
       setStatus(`部屋 ${payload.room_id} を作成しました。`)
@@ -216,43 +189,48 @@ function App() {
     }
   }
 
-  const saveInstructions = async (): Promise<boolean> => {
-    if (!room || !instructionDraft) return false
+  const saveSetup = async (): Promise<boolean> => {
+    if (!room || !draft) {
+      return false
+    }
     if (running) {
-      setStatus('会話停止中のみ指示文を更新できます。')
+      setStatus('会話停止中のみ設定を更新できます。')
+      return false
+    }
+
+    const facilitatorCount = draft.agents.filter((agent) => agent.role_type === 'facilitator').length
+    if (facilitatorCount !== 1) {
+      setStatus('ファシリテーターは1名だけ選んでください。')
       return false
     }
 
     try {
-      const payload = await requestJson<RoomPayload>(`${apiBase}/api/room/${room.room_id}/instructions`, {
+      const payload = await requestJson<RoomPayload>(`${apiBase}/api/room/${room.room_id}/setup`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          topic: instructionDraft.topic.trim(),
-          background: instructionDraft.background.trim(),
-          context: instructionDraft.context.trim(),
-          language: instructionDraft.language.trim() || '日本語',
-          global_instruction: instructionDraft.globalInstruction.trim(),
-          personas: room.personas.map((persona) => ({
-            agent_id: persona.agent_id,
-            persona_prompt: (instructionDraft.personaPrompts[persona.agent_id] ?? '').trim(),
+          subject: draft.subject.trim(),
+          agents: draft.agents.map((agent) => ({
+            agent_id: agent.agent_id,
+            role_type: agent.role_type,
+            character_profile:
+              agent.role_type === 'character' ? agent.character_profile.trim() : '',
           })),
         }),
       })
-
       setRoom(payload)
-      setInstructionDraft(createDraft(payload))
-      setStatus('指示文を保存しました。')
+      setDraft({ subject: payload.subject, agents: cloneAgents(payload.agents) })
+      setStatus('設定を保存しました。')
       return true
     } catch (error) {
-      setStatus(`指示文の保存に失敗しました: ${String(error)}`)
+      setStatus(`設定保存に失敗しました: ${String(error)}`)
       return false
     }
   }
 
   const startChat = async () => {
     if (!room) return
-    const saved = await saveInstructions()
+    const saved = await saveSetup()
     if (!saved) return
 
     try {
@@ -303,58 +281,42 @@ function App() {
       socketRef.current = null
     }
     setRoom(null)
-    setInstructionDraft(null)
+    setDraft(null)
     setMessages([])
     setRunning(false)
     setStatus('新しい部屋を作成してください。')
+  }
+
+  const updateDraftAgent = (agentId: string, update: Partial<Agent>) => {
+    setDraft((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        agents: prev.agents.map((agent) => {
+          if (agent.agent_id !== agentId) return agent
+          return { ...agent, ...update }
+        }),
+      }
+    })
   }
 
   return (
     <main className="app-shell">
       <header className="hero">
         <p className="eyebrow">LLM CHAT ROOM</p>
-        <h1>複数LLMで雑談ルーム</h1>
+        <h1>モデル同士の会話を楽しむルーム</h1>
         <p className="status">{status}</p>
       </header>
 
       {!room ? (
         <section className="setup-card">
           <label className="field">
-            <span>初期テーマ</span>
-            <input
-              value={topic}
-              onChange={(event) => setTopic(event.target.value)}
-              placeholder="例: 最高の深夜メシは何か"
-            />
-          </label>
-          <label className="field">
-            <span>背景</span>
+            <span>議論するお題</span>
             <textarea
-              value={background}
-              onChange={(event) => setBackground(event.target.value)}
-              placeholder="例: 新規ユーザー向けに1分で楽しめる体験を考えたい"
-              rows={2}
-            />
-          </label>
-          <label className="field">
-            <span>コンテキスト</span>
-            <textarea
-              value={context}
-              onChange={(event) => setContext(event.target.value)}
-              placeholder="例: 低コスト、スマホ中心、深夜利用が多い"
-              rows={2}
-            />
-          </label>
-          <label className="field">
-            <span>会話言語</span>
-            <input value={language} onChange={(event) => setLanguage(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>全体システム指示</span>
-            <textarea
-              value={globalInstruction}
-              onChange={(event) => setGlobalInstruction(event.target.value)}
-              rows={4}
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              placeholder="例: 1時間で作れる面白いWebサービス案を考える"
+              rows={3}
             />
           </label>
           <div className="field">
@@ -382,7 +344,7 @@ function App() {
             <div className="toolbar">
               <div>
                 <strong>Room: {room.room_id}</strong>
-                <p>{room.topic}</p>
+                <p>お題: {room.subject}</p>
               </div>
               <div className="toolbar-buttons">
                 <button className="primary" onClick={startChat} disabled={running}>
@@ -395,105 +357,13 @@ function App() {
               </div>
             </div>
 
-            {instructionDraft && (
-              <section className="instruction-editor">
-                <h2>開始前の指示編集</h2>
-                <label className="field">
-                  <span>会話テーマ</span>
-                  <input
-                    value={instructionDraft.topic}
-                    onChange={(event) =>
-                      setInstructionDraft((prev) =>
-                        prev ? { ...prev, topic: event.target.value } : prev,
-                      )
-                    }
-                    disabled={running}
-                  />
-                </label>
-                <label className="field">
-                  <span>背景情報</span>
-                  <textarea
-                    value={instructionDraft.background}
-                    onChange={(event) =>
-                      setInstructionDraft((prev) =>
-                        prev ? { ...prev, background: event.target.value } : prev,
-                      )
-                    }
-                    rows={2}
-                    disabled={running}
-                  />
-                </label>
-                <label className="field">
-                  <span>会話コンテキスト</span>
-                  <textarea
-                    value={instructionDraft.context}
-                    onChange={(event) =>
-                      setInstructionDraft((prev) =>
-                        prev ? { ...prev, context: event.target.value } : prev,
-                      )
-                    }
-                    rows={2}
-                    disabled={running}
-                  />
-                </label>
-                <label className="field">
-                  <span>会話言語</span>
-                  <input
-                    value={instructionDraft.language}
-                    onChange={(event) =>
-                      setInstructionDraft((prev) =>
-                        prev ? { ...prev, language: event.target.value } : prev,
-                      )
-                    }
-                    disabled={running}
-                  />
-                </label>
-                <label className="field">
-                  <span>全体システム指示</span>
-                  <textarea
-                    value={instructionDraft.globalInstruction}
-                    onChange={(event) =>
-                      setInstructionDraft((prev) =>
-                        prev ? { ...prev, globalInstruction: event.target.value } : prev,
-                      )
-                    }
-                    rows={4}
-                    disabled={running}
-                  />
-                </label>
-
-                <div className="persona-edit-grid">
-                  {room.personas.map((persona) => (
-                    <label key={persona.agent_id} className="field persona-edit-item">
-                      <span>
-                        {persona.agent_id} ({persona.role_name})
-                      </span>
-                      <textarea
-                        value={instructionDraft.personaPrompts[persona.agent_id] ?? ''}
-                        onChange={(event) =>
-                          setInstructionDraft((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  personaPrompts: {
-                                    ...prev.personaPrompts,
-                                    [persona.agent_id]: event.target.value,
-                                  },
-                                }
-                              : prev,
-                          )
-                        }
-                        rows={3}
-                        disabled={running}
-                      />
-                    </label>
-                  ))}
-                </div>
-                <button className="primary" onClick={saveInstructions} disabled={running}>
-                  指示を保存
-                </button>
-              </section>
-            )}
+            <div className="member-strip">
+              {room.agents.map((agent) => (
+                <span key={agent.agent_id} className="member-pill">
+                  {agent.display_name}
+                </span>
+              ))}
+            </div>
 
             <ul className="message-list">
               {messages.length === 0 ? (
@@ -512,7 +382,7 @@ function App() {
               <input
                 value={userInput}
                 onChange={(event) => setUserInput(event.target.value)}
-                placeholder="割り込み発言を入力"
+                placeholder="途中で話を振るときに入力"
               />
               <button className="primary" type="submit">
                 送信
@@ -520,19 +390,67 @@ function App() {
             </form>
           </article>
 
-          <aside className="persona-panel">
-            <h2>参加エージェント</h2>
-            <ul>
-              {room.personas.map((persona) => (
-                <li key={persona.agent_id} className="persona-card">
-                  <h3>{persona.agent_id}</h3>
-                  <p className="model">
-                    {persona.model} / {persona.role_name}
-                  </p>
-                  <p>{persona.persona_prompt}</p>
-                </li>
-              ))}
-            </ul>
+          <aside className="setup-panel">
+            <h2>開始前セットアップ</h2>
+            <p className="setup-note">会話中は編集できません。</p>
+            {draft && (
+              <>
+                <label className="field">
+                  <span>お題</span>
+                  <textarea
+                    value={draft.subject}
+                    onChange={(event) =>
+                      setDraft((prev) => (prev ? { ...prev, subject: event.target.value } : prev))
+                    }
+                    rows={2}
+                    disabled={running}
+                  />
+                </label>
+                <div className="agent-editor-list">
+                  {draft.agents.map((agent) => (
+                    <section key={agent.agent_id} className="agent-editor">
+                      <h3>{agent.display_name}</h3>
+                      <p className="model">{agent.model}</p>
+                      <label className="field">
+                        <span>役割</span>
+                        <select
+                          aria-label={`${agent.display_name} 役割`}
+                          value={agent.role_type}
+                          onChange={(event) =>
+                            updateDraftAgent(agent.agent_id, {
+                              role_type: event.target.value as RoleType,
+                            })
+                          }
+                          disabled={running}
+                        >
+                          <option value="facilitator">ファシリテーター</option>
+                          <option value="character">キャラクター</option>
+                        </select>
+                      </label>
+                      {agent.role_type === 'character' && (
+                        <label className="field">
+                          <span>キャラクター設定</span>
+                          <textarea
+                            aria-label={`${agent.display_name} キャラクター設定`}
+                            value={agent.character_profile}
+                            onChange={(event) =>
+                              updateDraftAgent(agent.agent_id, {
+                                character_profile: event.target.value,
+                              })
+                            }
+                            rows={3}
+                            disabled={running}
+                          />
+                        </label>
+                      )}
+                    </section>
+                  ))}
+                </div>
+                <button className="primary" onClick={saveSetup} disabled={running}>
+                  セットアップを保存
+                </button>
+              </>
+            )}
           </aside>
         </section>
       )}

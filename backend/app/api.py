@@ -5,36 +5,31 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from app.models import RoleType
 from app.orchestrator import RoomManager
 
 router = APIRouter(prefix="/api")
 
 
 class CreateRoomRequest(BaseModel):
-    topic: str = Field(min_length=1, max_length=500)
+    subject: str = Field(min_length=1, max_length=500)
     models: list[str] = Field(min_length=1, max_length=8)
-    background: str = Field(default="", max_length=1500)
-    context: str = Field(default="", max_length=1500)
-    language: str = Field(default="日本語", min_length=1, max_length=50)
-    global_instruction: str = Field(default="", max_length=3000)
     seed: int | None = None
 
 
-class PersonaResponse(BaseModel):
+class AgentResponse(BaseModel):
     agent_id: str
     model: str
-    role_name: str
+    display_name: str
+    role_type: RoleType
+    character_profile: str
     persona_prompt: str
 
 
-class CreateRoomResponse(BaseModel):
+class RoomResponse(BaseModel):
     room_id: str
-    topic: str
-    background: str
-    context: str
-    language: str
-    global_instruction: str
-    personas: list[PersonaResponse]
+    subject: str
+    agents: list[AgentResponse]
 
 
 class StartRoomRequest(BaseModel):
@@ -49,18 +44,15 @@ class UserMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=1000)
 
 
-class UpdatePersonaRequest(BaseModel):
+class UpdateAgentRequest(BaseModel):
     agent_id: str = Field(min_length=1, max_length=50)
-    persona_prompt: str = Field(min_length=1, max_length=2000)
+    role_type: RoleType
+    character_profile: str = Field(default="", max_length=1000)
 
 
-class UpdateRoomInstructionsRequest(BaseModel):
-    topic: str | None = Field(default=None, min_length=1, max_length=500)
-    background: str | None = Field(default=None, max_length=1500)
-    context: str | None = Field(default=None, max_length=1500)
-    language: str | None = Field(default=None, min_length=1, max_length=50)
-    global_instruction: str | None = Field(default=None, max_length=3000)
-    personas: list[UpdatePersonaRequest] | None = Field(default=None, max_length=8)
+class UpdateRoomSetupRequest(BaseModel):
+    subject: str | None = Field(default=None, min_length=1, max_length=500)
+    agents: list[UpdateAgentRequest] | None = Field(default=None, max_length=8)
 
 
 def get_room_manager(request: Request) -> RoomManager:
@@ -70,29 +62,18 @@ def get_room_manager(request: Request) -> RoomManager:
 RoomManagerDep = Annotated[RoomManager, Depends(get_room_manager)]
 
 
-@router.post("/room/create", response_model=CreateRoomResponse)
-def create_room(payload: CreateRoomRequest, manager: RoomManagerDep) -> CreateRoomResponse:
-    room = manager.create_room(
-        topic=payload.topic,
-        models=payload.models,
-        background=payload.background,
-        context=payload.context,
-        language=payload.language,
-        global_instruction=payload.global_instruction,
-        seed=payload.seed,
-    )
-    return CreateRoomResponse(
+def build_room_response(room_id: str, manager: RoomManager) -> RoomResponse:
+    room = manager.get_room(room_id)
+    return RoomResponse(
         room_id=room.room_id,
-        topic=room.topic,
-        background=room.background,
-        context=room.context,
-        language=room.language,
-        global_instruction=room.global_instruction,
-        personas=[
-            PersonaResponse(
+        subject=room.subject,
+        agents=[
+            AgentResponse(
                 agent_id=agent.agent_id,
                 model=agent.model,
-                role_name=agent.role_name,
+                display_name=agent.display_name,
+                role_type=agent.role_type,
+                character_profile=agent.character_profile,
                 persona_prompt=agent.persona_prompt,
             )
             for agent in room.agents
@@ -100,25 +81,28 @@ def create_room(payload: CreateRoomRequest, manager: RoomManagerDep) -> CreateRo
     )
 
 
-@router.put("/room/{room_id}/instructions", response_model=CreateRoomResponse)
-async def update_room_instructions(
-    room_id: str,
-    payload: UpdateRoomInstructionsRequest,
-    manager: RoomManagerDep,
-) -> CreateRoomResponse:
-    persona_overrides: dict[str, str] | None = None
-    if payload.personas:
-        persona_overrides = {item.agent_id: item.persona_prompt for item in payload.personas}
+@router.post("/room/create", response_model=RoomResponse)
+def create_room(payload: CreateRoomRequest, manager: RoomManagerDep) -> RoomResponse:
+    room = manager.create_room(subject=payload.subject, models=payload.models, seed=payload.seed)
+    return build_room_response(room.room_id, manager)
 
+
+@router.put("/room/{room_id}/setup", response_model=RoomResponse)
+async def update_room_setup(
+    room_id: str,
+    payload: UpdateRoomSetupRequest,
+    manager: RoomManagerDep,
+) -> RoomResponse:
+    updates: list[tuple[str, RoleType, str]] | None = None
+    if payload.agents is not None:
+        updates = [
+            (item.agent_id, item.role_type, item.character_profile) for item in payload.agents
+        ]
     try:
-        room = await manager.update_room_instructions(
+        await manager.update_room_setup(
             room_id=room_id,
-            topic=payload.topic,
-            background=payload.background,
-            context=payload.context,
-            language=payload.language,
-            global_instruction=payload.global_instruction,
-            persona_overrides=persona_overrides,
+            subject=payload.subject,
+            role_updates=updates,
         )
     except KeyError as exc:
         raise HTTPException(
@@ -128,29 +112,14 @@ async def update_room_instructions(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    return CreateRoomResponse(
-        room_id=room.room_id,
-        topic=room.topic,
-        background=room.background,
-        context=room.context,
-        language=room.language,
-        global_instruction=room.global_instruction,
-        personas=[
-            PersonaResponse(
-                agent_id=agent.agent_id,
-                model=agent.model,
-                role_name=agent.role_name,
-                persona_prompt=agent.persona_prompt,
-            )
-            for agent in room.agents
-        ],
-    )
+    return build_room_response(room_id, manager)
 
 
 @router.post("/room/{room_id}/start", response_model=StatusResponse)
 async def start_room(
-    room_id: str, payload: StartRoomRequest, manager: RoomManagerDep
+    room_id: str,
+    payload: StartRoomRequest,
+    manager: RoomManagerDep,
 ) -> StatusResponse:
     try:
         await manager.start_room(room_id=room_id, max_rounds=payload.max_rounds)

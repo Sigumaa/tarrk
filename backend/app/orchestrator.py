@@ -8,16 +8,9 @@ from uuid import uuid4
 from fastapi import WebSocket
 
 from app.config import Settings
-from app.models import AgentSpec, ChatMessage, Room
+from app.models import AgentSpec, ChatMessage, RoleType, Room
 from app.openrouter import LLMClient
-from app.persona import generate_personas
-
-DEFAULT_GLOBAL_INSTRUCTION = (
-    "会話の目的は、テーマに対して多角的な視点を出し、次に取る行動を明確にすることです。\n"
-    "必ず会話言語に従って発話し、専門用語には短い補足を添えてください。\n"
-    "他のagentの発言を受けてから話し、同じ主張の反復は避けてください。\n"
-    "1ターンは2〜4文で簡潔にまとめ、最後に次の検討ポイントを1つ示してください。"
-)
+from app.persona import build_persona_prompt, generate_personas
 
 
 def choose_next_speaker(
@@ -46,32 +39,13 @@ class RoomManager:
         self._settings = settings
         self._rooms: dict[str, Room] = {}
 
-    def create_room(
-        self,
-        *,
-        topic: str,
-        models: list[str],
-        background: str = "",
-        context: str = "",
-        language: str = "日本語",
-        global_instruction: str = "",
-        seed: int | None = None,
-    ) -> Room:
+    def create_room(self, *, subject: str, models: list[str], seed: int | None = None) -> Room:
         if not models:
             raise ValueError("At least one model is required.")
         room_id = uuid4().hex[:8]
         rng = Random(seed)
         agents = generate_personas(models=models, rng=rng)
-        room = Room(
-            room_id=room_id,
-            topic=topic,
-            background=background,
-            context=context,
-            language=language,
-            global_instruction=global_instruction.strip() or DEFAULT_GLOBAL_INSTRUCTION,
-            agents=agents,
-            rng=rng,
-        )
+        room = Room(room_id=room_id, subject=subject, agents=agents, rng=rng)
         self._rooms[room_id] = room
         return room
 
@@ -116,39 +90,40 @@ class RoomManager:
         )
         return message
 
-    async def update_room_instructions(
+    async def update_room_setup(
         self,
         room_id: str,
         *,
-        topic: str | None = None,
-        background: str | None = None,
-        context: str | None = None,
-        language: str | None = None,
-        global_instruction: str | None = None,
-        persona_overrides: dict[str, str] | None = None,
+        subject: str | None = None,
+        role_updates: list[tuple[str, RoleType, str]] | None = None,
     ) -> Room:
         room = self.get_room(room_id)
         async with room.lock:
             if room.running:
-                raise RuntimeError("Cannot update instructions while room is running.")
-            if topic is not None:
-                room.topic = topic
-            if background is not None:
-                room.background = background
-            if context is not None:
-                room.context = context
-            if language is not None:
-                room.language = language
-            if global_instruction is not None:
-                room.global_instruction = global_instruction.strip() or DEFAULT_GLOBAL_INSTRUCTION
+                raise RuntimeError("Cannot update setup while room is running.")
+            if subject is not None:
+                room.subject = subject
 
-            if persona_overrides:
-                agent_index = {agent.agent_id: agent for agent in room.agents}
-                for agent_id, prompt in persona_overrides.items():
-                    agent = agent_index.get(agent_id)
-                    if agent is None:
+            if role_updates:
+                index = {agent.agent_id: agent for agent in room.agents}
+                for agent_id, role_type, character_profile in role_updates:
+                    target = index.get(agent_id)
+                    if target is None:
                         raise ValueError(f"Unknown agent_id: {agent_id}")
-                    agent.persona_prompt = prompt
+                    target.role_type = role_type
+                    target.character_profile = (
+                        "" if role_type == "facilitator" else character_profile.strip()
+                    )
+                    target.persona_prompt = build_persona_prompt(
+                        role_type=target.role_type,
+                        character_profile=target.character_profile,
+                    )
+
+                facilitator_count = sum(
+                    1 for agent in room.agents if agent.role_type == "facilitator"
+                )
+                if facilitator_count != 1:
+                    raise ValueError("Exactly one facilitator is required.")
 
         await self._broadcast_snapshot(room)
         return room
@@ -181,13 +156,9 @@ class RoomManager:
                 try:
                     content = await self._llm_client.generate_reply(
                         model=speaker.model,
-                        agent_id=speaker.agent_id,
-                        role_name=speaker.role_name,
-                        topic=room.topic,
-                        background=room.background,
-                        context=room.context,
-                        language=room.language,
-                        global_instruction=room.global_instruction,
+                        display_name=speaker.display_name,
+                        role_type=speaker.role_type,
+                        subject=room.subject,
                         persona_prompt=speaker.persona_prompt,
                         history=history,
                         priority_message=priority_message,
@@ -218,7 +189,11 @@ class RoomManager:
                     await asyncio.sleep(self._settings.loop_interval_seconds)
                     continue
 
-                message = ChatMessage(role="agent", speaker_id=speaker.agent_id, content=content)
+                message = ChatMessage(
+                    role="agent",
+                    speaker_id=speaker.display_name,
+                    content=content,
+                )
                 room.messages.append(message)
                 room.last_speaker_id = speaker.agent_id
                 rounds += 1
@@ -274,17 +249,15 @@ class RoomManager:
             "type": "room_snapshot",
             "payload": {
                 "room_id": room.room_id,
-                "topic": room.topic,
-                "background": room.background,
-                "context": room.context,
-                "language": room.language,
-                "global_instruction": room.global_instruction,
+                "subject": room.subject,
                 "running": room.running,
                 "agents": [
                     {
                         "agent_id": agent.agent_id,
                         "model": agent.model,
-                        "role_name": agent.role_name,
+                        "display_name": agent.display_name,
+                        "role_type": agent.role_type,
+                        "character_profile": agent.character_profile,
                         "persona_prompt": agent.persona_prompt,
                     }
                     for agent in room.agents

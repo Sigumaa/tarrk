@@ -37,15 +37,15 @@ describe('App', () => {
     vi.stubGlobal('fetch', vi.fn())
   })
 
-  it('shows validation when topic is empty', async () => {
+  it('shows validation when subject is empty', async () => {
     render(<App />)
     await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
 
-    expect(await screen.findByText('テーマを入力してください。')).toBeInTheDocument()
+    expect(await screen.findByText('議論したいお題を入力してください。')).toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('renders newly added model options', () => {
+  it('renders model presets', () => {
     render(<App />)
 
     expect(screen.getByText('moonshotai/kimi-k2.5')).toBeInTheDocument()
@@ -54,23 +54,21 @@ describe('App', () => {
     expect(screen.getByText('x-ai/grok-4.1-fast')).toBeInTheDocument()
   })
 
-  it('creates room and renders websocket messages', async () => {
+  it('creates room and renders websocket messages with model display name', async () => {
     const mockedFetch = vi.mocked(fetch)
     mockedFetch.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
           room_id: 'room-1',
-          topic: 'おにぎり議論',
-          background: '背景',
-          context: '文脈',
-          language: '日本語',
-          global_instruction: '短く議論する',
-          personas: [
+          subject: 'おにぎり議論',
+          agents: [
             {
               agent_id: 'agent-1',
               model: 'openai/gpt-4o-mini',
-              role_name: 'ファシリテーター',
-              persona_prompt: 'test persona',
+              display_name: 'openai/gpt-4o-mini',
+              role_type: 'facilitator',
+              character_profile: '',
+              persona_prompt: '司会',
             },
           ],
         }),
@@ -79,22 +77,23 @@ describe('App', () => {
     )
 
     render(<App />)
-
-    await userEvent.type(screen.getByPlaceholderText('例: 最高の深夜メシは何か'), 'おにぎり議論')
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 1時間で作れる面白いWebサービス案を考える'),
+      'おにぎり議論',
+    )
     await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
 
     expect(await screen.findByText('Room: room-1')).toBeInTheDocument()
+    expect(screen.getAllByText('openai/gpt-4o-mini').length).toBeGreaterThan(0)
     expect(MockWebSocket.instances).toHaveLength(1)
-    act(() => {
-      MockWebSocket.instances[0].open()
-    })
 
     act(() => {
+      MockWebSocket.instances[0].open()
       MockWebSocket.instances[0].emit({
         type: 'message',
         payload: {
           role: 'agent',
-          speaker_id: 'agent-1',
+          speaker_id: 'openai/gpt-4o-mini',
           content: 'こんにちは',
           timestamp: '2026-01-01T00:00:00Z',
         },
@@ -102,6 +101,7 @@ describe('App', () => {
     })
 
     expect(await screen.findByText('こんにちは')).toBeInTheDocument()
+    expect((await screen.findAllByText('openai/gpt-4o-mini')).length).toBeGreaterThan(0)
 
     await waitFor(() => {
       expect(mockedFetch).toHaveBeenCalledWith(
@@ -111,23 +111,29 @@ describe('App', () => {
     })
   })
 
-  it('allows updating instructions before start', async () => {
+  it('saves pre-start setup with role selection', async () => {
     const mockedFetch = vi.mocked(fetch)
     mockedFetch.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
           room_id: 'room-2',
-          topic: '初期テーマ',
-          background: '初期背景',
-          context: '初期文脈',
-          language: '日本語',
-          global_instruction: '初期指示',
-          personas: [
+          subject: '初期お題',
+          agents: [
             {
               agent_id: 'agent-1',
-              model: 'moonshotai/kimi-k2.5',
-              role_name: '検証担当',
-              persona_prompt: '初期persona',
+              model: 'm1',
+              display_name: 'm1',
+              role_type: 'facilitator',
+              character_profile: '',
+              persona_prompt: '司会',
+            },
+            {
+              agent_id: 'agent-2',
+              model: 'm2',
+              display_name: 'm2',
+              role_type: 'character',
+              character_profile: '初期キャラ',
+              persona_prompt: 'キャラ',
             },
           ],
         }),
@@ -138,17 +144,23 @@ describe('App', () => {
       new Response(
         JSON.stringify({
           room_id: 'room-2',
-          topic: '更新テーマ',
-          background: '更新背景',
-          context: '更新文脈',
-          language: '日本語',
-          global_instruction: '更新した全体指示',
-          personas: [
+          subject: '更新お題',
+          agents: [
             {
               agent_id: 'agent-1',
-              model: 'moonshotai/kimi-k2.5',
-              role_name: '検証担当',
-              persona_prompt: '更新persona',
+              model: 'm1',
+              display_name: 'm1',
+              role_type: 'character',
+              character_profile: '辛口批評家',
+              persona_prompt: 'キャラ',
+            },
+            {
+              agent_id: 'agent-2',
+              model: 'm2',
+              display_name: 'm2',
+              role_type: 'facilitator',
+              character_profile: '',
+              persona_prompt: '司会',
             },
           ],
         }),
@@ -157,41 +169,31 @@ describe('App', () => {
     )
 
     render(<App />)
-
-    await userEvent.type(screen.getByPlaceholderText('例: 最高の深夜メシは何か'), '初期テーマ')
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 1時間で作れる面白いWebサービス案を考える'),
+      '初期お題',
+    )
     await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
     expect(await screen.findByText('Room: room-2')).toBeInTheDocument()
 
-    const themeInput = screen.getByLabelText('会話テーマ')
-    await userEvent.clear(themeInput)
-    await userEvent.type(themeInput, '更新テーマ')
+    await userEvent.clear(screen.getByLabelText('お題'))
+    await userEvent.type(screen.getByLabelText('お題'), '更新お題')
 
-    const globalInstructionInput = screen.getByLabelText('全体システム指示')
-    await userEvent.clear(globalInstructionInput)
-    await userEvent.type(globalInstructionInput, '更新した全体指示')
+    await userEvent.selectOptions(screen.getByLabelText('m1 役割'), 'character')
+    await userEvent.type(screen.getByLabelText('m1 キャラクター設定'), '辛口批評家')
+    await userEvent.selectOptions(screen.getByLabelText('m2 役割'), 'facilitator')
 
-    const personaInput = screen.getByLabelText('agent-1 (検証担当)')
-    await userEvent.clear(personaInput)
-    await userEvent.type(personaInput, '更新persona')
+    await userEvent.click(screen.getByRole('button', { name: 'セットアップを保存' }))
+    expect(await screen.findByText('設定を保存しました。')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: '指示を保存' }))
-    expect(await screen.findByText('指示文を保存しました。')).toBeInTheDocument()
-
-    const calls = mockedFetch.mock.calls
-    const updateCall = calls.find((call) => String(call[0]).includes('/instructions'))
+    const updateCall = mockedFetch.mock.calls.find((call) => String(call[0]).includes('/setup'))
     expect(updateCall).toBeDefined()
-    const init = updateCall?.[1] as RequestInit
-    const body = JSON.parse(String(init.body)) as {
-      topic: string
-      global_instruction: string
-      personas: Array<{ agent_id: string; persona_prompt: string }>
+    const body = JSON.parse(String((updateCall?.[1] as RequestInit).body)) as {
+      subject: string
+      agents: Array<{ role_type: string }>
     }
-    expect(body.topic).toBe('更新テーマ')
-    expect(body.global_instruction).toBe('更新した全体指示')
-    expect(body.personas[0]).toEqual({
-      agent_id: 'agent-1',
-      persona_prompt: '更新persona',
-    })
+    expect(body.subject).toBe('更新お題')
+    expect(body.agents[0].role_type).toBe('character')
+    expect(body.agents[1].role_type).toBe('facilitator')
   })
 })
-

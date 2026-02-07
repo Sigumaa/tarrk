@@ -9,6 +9,7 @@ from typing import Literal
 from fastapi import WebSocket
 
 MessageRole = Literal["user", "agent"]
+RoleType = Literal["facilitator", "character"]
 
 
 def utc_now_iso() -> str:
@@ -27,20 +28,18 @@ class ChatMessage:
 class AgentSpec:
     agent_id: str
     model: str
-    role_name: str
+    display_name: str
+    role_type: RoleType
+    character_profile: str
     persona_prompt: str
 
 
 @dataclass(slots=True)
 class Room:
     room_id: str
-    topic: str
+    subject: str
     agents: list[AgentSpec]
     rng: Random
-    background: str = ""
-    context: str = ""
-    language: str = "日本語"
-    global_instruction: str = ""
     messages: list[ChatMessage] = field(default_factory=list)
     running: bool = False
     task: asyncio.Task[None] | None = None
