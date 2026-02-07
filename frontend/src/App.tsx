@@ -130,6 +130,7 @@ const SPEAKER_ACCENT_COLORS = [
 
 const SUBJECT_MAX_LENGTH = 2000
 const GLOBAL_INSTRUCTION_MAX_LENGTH = 1200
+const MODELS_MAX_COUNT = 12
 
 function speedLabel(value: number): string {
   const matched = SPEED_OPTIONS.find((item) => Math.abs(item.value - value) < 1e-6)
@@ -345,6 +346,10 @@ function App() {
       if (prev.includes(model)) {
         return prev.filter((item) => item !== model)
       }
+      if (prev.length >= MODELS_MAX_COUNT) {
+        setStatus(`参加モデルは最大${MODELS_MAX_COUNT}件です。`)
+        return prev
+      }
       return [...prev, model]
     })
   }
@@ -361,6 +366,10 @@ function App() {
     }
     if (selectedModels.length === 0) {
       setStatus('最低1モデルを選択してください。')
+      return
+    }
+    if (selectedModels.length > MODELS_MAX_COUNT) {
+      setStatus(`参加モデルは最大${MODELS_MAX_COUNT}件です。`)
       return
     }
 
@@ -623,12 +632,14 @@ function App() {
                   <input
                     type="checkbox"
                     checked={selectedModels.includes(model)}
+                    disabled={!selectedModels.includes(model) && selectedModels.length >= MODELS_MAX_COUNT}
                     onChange={() => toggleModel(model)}
                   />
                   <span>{model}</span>
                 </label>
               ))}
             </div>
+            <p className="field-counter">選択中: {selectedModels.length} / {MODELS_MAX_COUNT}</p>
           </div>
           <button className="primary" onClick={createRoom}>
             部屋を作る
