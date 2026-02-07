@@ -145,3 +145,21 @@ def test_room_create_subject_length_limit() -> None:
         json={"subject": invalid_subject, "models": ["m1"]},
     )
     assert invalid_response.status_code == 422
+
+
+def test_room_create_models_length_limit() -> None:
+    client, _ = build_client()
+    valid_models = [f"m{i}" for i in range(1, 13)]
+    invalid_models = [f"m{i}" for i in range(1, 14)]
+
+    valid_response = client.post(
+        "/api/room/create",
+        json={"subject": "models test", "models": valid_models},
+    )
+    assert valid_response.status_code == 200
+
+    invalid_response = client.post(
+        "/api/room/create",
+        json={"subject": "models test", "models": invalid_models},
+    )
+    assert invalid_response.status_code == 422
