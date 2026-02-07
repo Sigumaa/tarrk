@@ -12,6 +12,13 @@ from app.models import AgentSpec, ChatMessage, Room
 from app.openrouter import LLMClient
 from app.persona import generate_personas
 
+DEFAULT_GLOBAL_INSTRUCTION = (
+    "会話の目的は、テーマに対して多角的な視点を出し、次に取る行動を明確にすることです。\n"
+    "必ず会話言語に従って発話し、専門用語には短い補足を添えてください。\n"
+    "他のagentの発言を受けてから話し、同じ主張の反復は避けてください。\n"
+    "1ターンは2〜4文で簡潔にまとめ、最後に次の検討ポイントを1つ示してください。"
+)
+
 
 def choose_next_speaker(
     *,
@@ -39,13 +46,32 @@ class RoomManager:
         self._settings = settings
         self._rooms: dict[str, Room] = {}
 
-    def create_room(self, *, topic: str, models: list[str], seed: int | None = None) -> Room:
+    def create_room(
+        self,
+        *,
+        topic: str,
+        models: list[str],
+        background: str = "",
+        context: str = "",
+        language: str = "日本語",
+        global_instruction: str = "",
+        seed: int | None = None,
+    ) -> Room:
         if not models:
             raise ValueError("At least one model is required.")
         room_id = uuid4().hex[:8]
         rng = Random(seed)
         agents = generate_personas(models=models, rng=rng)
-        room = Room(room_id=room_id, topic=topic, agents=agents, rng=rng)
+        room = Room(
+            room_id=room_id,
+            topic=topic,
+            background=background,
+            context=context,
+            language=language,
+            global_instruction=global_instruction.strip() or DEFAULT_GLOBAL_INSTRUCTION,
+            agents=agents,
+            rng=rng,
+        )
         self._rooms[room_id] = room
         return room
 
@@ -90,6 +116,43 @@ class RoomManager:
         )
         return message
 
+    async def update_room_instructions(
+        self,
+        room_id: str,
+        *,
+        topic: str | None = None,
+        background: str | None = None,
+        context: str | None = None,
+        language: str | None = None,
+        global_instruction: str | None = None,
+        persona_overrides: dict[str, str] | None = None,
+    ) -> Room:
+        room = self.get_room(room_id)
+        async with room.lock:
+            if room.running:
+                raise RuntimeError("Cannot update instructions while room is running.")
+            if topic is not None:
+                room.topic = topic
+            if background is not None:
+                room.background = background
+            if context is not None:
+                room.context = context
+            if language is not None:
+                room.language = language
+            if global_instruction is not None:
+                room.global_instruction = global_instruction.strip() or DEFAULT_GLOBAL_INSTRUCTION
+
+            if persona_overrides:
+                agent_index = {agent.agent_id: agent for agent in room.agents}
+                for agent_id, prompt in persona_overrides.items():
+                    agent = agent_index.get(agent_id)
+                    if agent is None:
+                        raise ValueError(f"Unknown agent_id: {agent_id}")
+                    agent.persona_prompt = prompt
+
+        await self._broadcast_snapshot(room)
+        return room
+
     async def register_ws(self, room_id: str, websocket: WebSocket) -> None:
         room = self.get_room(room_id)
         room.ws_connections.add(websocket)
@@ -118,7 +181,13 @@ class RoomManager:
                 try:
                     content = await self._llm_client.generate_reply(
                         model=speaker.model,
+                        agent_id=speaker.agent_id,
+                        role_name=speaker.role_name,
                         topic=room.topic,
+                        background=room.background,
+                        context=room.context,
+                        language=room.language,
+                        global_instruction=room.global_instruction,
                         persona_prompt=speaker.persona_prompt,
                         history=history,
                         priority_message=priority_message,
@@ -163,25 +232,10 @@ class RoomManager:
             await self._broadcast_room_state(room)
 
     async def _send_room_snapshot(self, *, room: Room, websocket: WebSocket) -> None:
-        await websocket.send_json(
-            {
-                "type": "room_snapshot",
-                "payload": {
-                    "room_id": room.room_id,
-                    "topic": room.topic,
-                    "running": room.running,
-                    "agents": [
-                        {
-                            "agent_id": agent.agent_id,
-                            "model": agent.model,
-                            "persona_prompt": agent.persona_prompt,
-                        }
-                        for agent in room.agents
-                    ],
-                    "messages": [self._serialize_message(message) for message in room.messages],
-                },
-            }
-        )
+        await websocket.send_json(self._build_snapshot_event(room))
+
+    async def _broadcast_snapshot(self, room: Room) -> None:
+        await self._broadcast(room, self._build_snapshot_event(room))
 
     async def _broadcast_room_state(self, room: Room) -> None:
         await self._broadcast(
@@ -212,4 +266,29 @@ class RoomManager:
             "speaker_id": message.speaker_id,
             "content": message.content,
             "timestamp": message.timestamp,
+        }
+
+    @staticmethod
+    def _build_snapshot_event(room: Room) -> dict[str, object]:
+        return {
+            "type": "room_snapshot",
+            "payload": {
+                "room_id": room.room_id,
+                "topic": room.topic,
+                "background": room.background,
+                "context": room.context,
+                "language": room.language,
+                "global_instruction": room.global_instruction,
+                "running": room.running,
+                "agents": [
+                    {
+                        "agent_id": agent.agent_id,
+                        "model": agent.model,
+                        "role_name": agent.role_name,
+                        "persona_prompt": agent.persona_prompt,
+                    }
+                    for agent in room.agents
+                ],
+                "messages": [RoomManager._serialize_message(message) for message in room.messages],
+            },
         }

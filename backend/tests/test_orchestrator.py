@@ -15,7 +15,13 @@ class StaticLLM:
         self,
         *,
         model: str,
+        agent_id: str,
+        role_name: str,
         topic: str,
+        background: str,
+        context: str,
+        language: str,
+        global_instruction: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
@@ -28,7 +34,13 @@ class FailingLLM:
         self,
         *,
         model: str,
+        agent_id: str,
+        role_name: str,
         topic: str,
+        background: str,
+        context: str,
+        language: str,
+        global_instruction: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
@@ -54,8 +66,8 @@ def _build_settings(
 
 def test_choose_next_speaker_excludes_last_speaker() -> None:
     agents = [
-        AgentSpec(agent_id="agent-1", model="m1", persona_prompt="p1"),
-        AgentSpec(agent_id="agent-2", model="m2", persona_prompt="p2"),
+        AgentSpec(agent_id="agent-1", model="m1", role_name="r1", persona_prompt="p1"),
+        AgentSpec(agent_id="agent-2", model="m2", role_name="r2", persona_prompt="p2"),
     ]
     speaker = choose_next_speaker(agents=agents, last_speaker_id="agent-1", rng=Random(1))
     assert speaker.agent_id == "agent-2"
@@ -70,13 +82,25 @@ def test_trim_history_respects_limit() -> None:
 @pytest.mark.asyncio
 async def test_room_loop_generates_messages() -> None:
     manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=2))
-    room = manager.create_room(topic="pizza", models=["m1", "m2"], seed=1)
+    room = manager.create_room(
+        topic="pizza",
+        models=["m1", "m2"],
+        background="社内ハッカソン企画",
+        context="対象は20代の夜食ユーザー",
+        language="日本語",
+        global_instruction="日本語で会話し、要点をまとめること。",
+        seed=1,
+    )
 
     await manager.start_room(room.room_id)
     await asyncio.sleep(0.05)
 
     assert room.running is False
     assert len([message for message in room.messages if message.role == "agent"]) == 2
+    assert room.background == "社内ハッカソン企画"
+    assert room.context == "対象は20代の夜食ユーザー"
+    assert room.language == "日本語"
+    assert "日本語で会話" in room.global_instruction
 
 
 @pytest.mark.asyncio
@@ -91,3 +115,15 @@ async def test_room_stops_after_consecutive_failures() -> None:
 
     assert room.running is False
     assert room.fail_streak >= 2
+
+
+@pytest.mark.asyncio
+async def test_update_instructions_fails_while_running() -> None:
+    manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=100))
+    room = manager.create_room(topic="topic", models=["m1", "m2"], seed=1)
+
+    async with room.lock:
+        room.running = True
+
+    with pytest.raises(RuntimeError):
+        await manager.update_room_instructions(room.room_id, topic="updated")

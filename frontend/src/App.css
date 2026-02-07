@@ -63,6 +63,15 @@ input {
   padding: 0.65rem 0.75rem;
 }
 
+textarea {
+  background: #fff;
+  border: 1px solid #f59e0b;
+  border-radius: 10px;
+  font: inherit;
+  padding: 0.65rem 0.75rem;
+  resize: vertical;
+}
+
 .model-grid {
   display: grid;
   gap: 0.5rem;
@@ -188,6 +197,33 @@ button:disabled {
   margin-top: 0.75rem;
 }
 
+.instruction-editor {
+  background: #fffdf4;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.7rem;
+  margin-bottom: 0.9rem;
+  padding: 0.85rem;
+}
+
+.instruction-editor h2 {
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.persona-edit-grid {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.persona-edit-item {
+  background: #fff;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  padding: 0.65rem;
+}
+
 .persona-panel h2 {
   margin-top: 0;
 }
@@ -226,4 +262,3 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
-
