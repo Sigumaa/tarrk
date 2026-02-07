@@ -49,6 +49,10 @@ describe('App', () => {
     render(<App />)
 
     expect(screen.getByText('moonshotai/kimi-k2.5')).toBeInTheDocument()
+    expect(screen.getByText('deepseek/deepseek-v3.2')).toBeInTheDocument()
+    expect(screen.getByText('minimax/minimax-m2.1')).toBeInTheDocument()
+    expect(screen.getByText('arcee-ai/trinity-large-preview:free')).toBeInTheDocument()
+    expect(screen.getByText('z-ai/glm-4.7')).toBeInTheDocument()
     expect(screen.getByText('google/gemini-3-flash-preview')).toBeInTheDocument()
     expect(screen.getByText('anthropic/claude-sonnet-4.5')).toBeInTheDocument()
     expect(screen.getByText('x-ai/grok-4.1-fast')).toBeInTheDocument()

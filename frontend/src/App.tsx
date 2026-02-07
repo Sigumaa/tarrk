@@ -69,6 +69,10 @@ type SpeedOption = {
 const MODEL_OPTIONS = [
   'openai/gpt-4o-mini',
   'moonshotai/kimi-k2.5',
+  'deepseek/deepseek-v3.2',
+  'minimax/minimax-m2.1',
+  'arcee-ai/trinity-large-preview:free',
+  'z-ai/glm-4.7',
   'google/gemini-3-flash-preview',
   'anthropic/claude-sonnet-4.5',
   'x-ai/grok-4.1-fast',
