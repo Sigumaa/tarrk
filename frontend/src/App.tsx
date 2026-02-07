@@ -40,6 +40,10 @@ const MODEL_OPTIONS = [
   'anthropic/claude-3.5-sonnet',
   'google/gemini-2.0-flash',
   'meta-llama/llama-3.3-70b-instruct',
+  'moonshotai/kimi-k2.5',
+  'google/gemini-3-flash-preview',
+  'anthropic/claude-sonnet-4.5',
+  'x-ai/grok-4.1-fast',
 ]
 
 async function requestJson<T>(url: string, init: RequestInit): Promise<T> {

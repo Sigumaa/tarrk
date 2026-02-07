@@ -45,6 +45,15 @@ describe('App', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('renders newly added model options', () => {
+    render(<App />)
+
+    expect(screen.getByText('moonshotai/kimi-k2.5')).toBeInTheDocument()
+    expect(screen.getByText('google/gemini-3-flash-preview')).toBeInTheDocument()
+    expect(screen.getByText('anthropic/claude-sonnet-4.5')).toBeInTheDocument()
+    expect(screen.getByText('x-ai/grok-4.1-fast')).toBeInTheDocument()
+  })
+
   it('creates room and renders websocket messages', async () => {
     const mockedFetch = vi.mocked(fetch)
     mockedFetch.mockResolvedValueOnce(
