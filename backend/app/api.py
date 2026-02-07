@@ -5,7 +5,7 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from app.models import RoleType
+from app.models import ConversationMode, RoleType
 from app.orchestrator import RoomManager
 
 router = APIRouter(prefix="/api")
@@ -14,6 +14,9 @@ router = APIRouter(prefix="/api")
 class CreateRoomRequest(BaseModel):
     subject: str = Field(min_length=1, max_length=500)
     models: list[str] = Field(min_length=1, max_length=8)
+    conversation_mode: ConversationMode = "philosophy_debate"
+    global_instruction: str = Field(default="", max_length=1200)
+    turn_interval_seconds: float = Field(default=0.5, ge=0.0, le=5.0)
     seed: int | None = None
 
 
@@ -28,11 +31,20 @@ class AgentResponse(BaseModel):
 class RoomResponse(BaseModel):
     room_id: str
     subject: str
+    conversation_mode: ConversationMode
+    global_instruction: str
+    turn_interval_seconds: float
     agents: list[AgentResponse]
 
 
 class StartRoomRequest(BaseModel):
     max_rounds: int | None = Field(default=None, ge=1, le=500)
+
+
+class UpdateRoomConfigRequest(BaseModel):
+    conversation_mode: ConversationMode | None = None
+    global_instruction: str | None = Field(default=None, max_length=1200)
+    turn_interval_seconds: float | None = Field(default=None, ge=0.0, le=5.0)
 
 
 class StatusResponse(BaseModel):
@@ -55,6 +67,9 @@ def build_room_response(room_id: str, manager: RoomManager) -> RoomResponse:
     return RoomResponse(
         room_id=room.room_id,
         subject=room.subject,
+        conversation_mode=room.conversation_mode,
+        global_instruction=room.global_instruction,
+        turn_interval_seconds=room.turn_interval_seconds,
         agents=[
             AgentResponse(
                 agent_id=agent.agent_id,
@@ -70,7 +85,14 @@ def build_room_response(room_id: str, manager: RoomManager) -> RoomResponse:
 
 @router.post("/room/create", response_model=RoomResponse)
 def create_room(payload: CreateRoomRequest, manager: RoomManagerDep) -> RoomResponse:
-    room = manager.create_room(subject=payload.subject, models=payload.models, seed=payload.seed)
+    room = manager.create_room(
+        subject=payload.subject,
+        models=payload.models,
+        conversation_mode=payload.conversation_mode,
+        global_instruction=payload.global_instruction,
+        turn_interval_seconds=payload.turn_interval_seconds,
+        seed=payload.seed,
+    )
     return build_room_response(room.room_id, manager)
 
 
@@ -109,6 +131,28 @@ async def conclude_room(room_id: str, manager: RoomManagerDep) -> StatusResponse
             status_code=status.HTTP_404_NOT_FOUND, detail="Room not found."
         ) from exc
     return StatusResponse(status="concluded")
+
+
+@router.post("/room/{room_id}/config", response_model=RoomResponse)
+async def update_room_config(
+    room_id: str,
+    payload: UpdateRoomConfigRequest,
+    manager: RoomManagerDep,
+) -> RoomResponse:
+    try:
+        room = await manager.update_room_config(
+            room_id=room_id,
+            conversation_mode=payload.conversation_mode,
+            global_instruction=payload.global_instruction,
+            turn_interval_seconds=payload.turn_interval_seconds,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found."
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return build_room_response(room.room_id, manager)
 
 
 @router.post("/room/{room_id}/user-message", response_model=StatusResponse)

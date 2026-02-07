@@ -10,6 +10,7 @@ from fastapi import WebSocket
 
 MessageRole = Literal["user", "agent"]
 RoleType = Literal["facilitator", "character"]
+ConversationMode = Literal["philosophy_debate", "devils_advocate", "consensus_lab"]
 
 
 def utc_now_iso() -> str:
@@ -51,6 +52,10 @@ class Room:
     subject: str
     agents: list[AgentSpec]
     rng: Random
+    persona_seed: int
+    conversation_mode: ConversationMode
+    global_instruction: str = ""
+    turn_interval_seconds: float = 0.5
     messages: list[ChatMessage] = field(default_factory=list)
     running: bool = False
     task: asyncio.Task[None] | None = None

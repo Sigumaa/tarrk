@@ -4,7 +4,7 @@ from typing import Protocol
 
 import httpx
 
-from app.models import ChatMessage, RoleType
+from app.models import ChatMessage, ConversationMode, RoleType
 
 
 class LLMClient(Protocol):
@@ -15,6 +15,8 @@ class LLMClient(Protocol):
         display_name: str,
         role_type: RoleType,
         subject: str,
+        conversation_mode: ConversationMode,
+        global_instruction: str,
         act_name: str,
         act_goal: str,
         persona_prompt: str,
@@ -44,6 +46,8 @@ class OpenRouterClient:
         display_name: str,
         role_type: RoleType,
         subject: str,
+        conversation_mode: ConversationMode,
+        global_instruction: str,
         act_name: str,
         act_goal: str,
         persona_prompt: str,
@@ -57,6 +61,8 @@ class OpenRouterClient:
             display_name=display_name,
             role_type=role_type,
             subject=subject,
+            conversation_mode=conversation_mode,
+            global_instruction=global_instruction,
             act_name=act_name,
             act_goal=act_goal,
             persona_prompt=persona_prompt,
@@ -131,18 +137,22 @@ class OpenRouterClient:
         display_name: str,
         role_type: RoleType,
         subject: str,
+        conversation_mode: ConversationMode,
+        global_instruction: str,
         act_name: str,
         act_goal: str,
         persona_prompt: str,
     ) -> str:
         normalized_subject = subject.strip() or "与えられたお題"
+        normalized_global = global_instruction.strip()
         role_text = "ファシリテーター" if role_type == "facilitator" else "議論参加者"
-        return (
+        prompt = (
             "あなたは複数LLMの会話ルームにいます。\n"
             "必ず日本語で話してください。\n"
             f"あなたの表示名: {display_name}\n"
             f"あなたの役割: {role_text}\n"
             f"議論するお題: {normalized_subject}\n\n"
+            f"会話モード: {conversation_mode}\n"
             f"現在の進行幕: {act_name}\n"
             f"この幕の狙い: {act_goal}\n\n"
             "共通ルール:\n"
@@ -152,6 +162,9 @@ class OpenRouterClient:
             "- 会話を勝手に終了しない（終了判断はユーザが行う）\n\n"
             f"{persona_prompt}"
         )
+        if normalized_global:
+            prompt += f"\n\nユーザ追加指示:\n{normalized_global}"
+        return prompt
 
     @staticmethod
     def _render_history(history: list[ChatMessage], priority_message: ChatMessage | None) -> str:

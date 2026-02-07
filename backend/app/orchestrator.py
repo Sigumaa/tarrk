@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi import WebSocket
 
 from app.config import Settings
-from app.models import AgentSpec, ChatMessage, GenerationLog, Room
+from app.models import AgentSpec, ChatMessage, ConversationMode, GenerationLog, Room
 from app.openrouter import LLMClient
 from app.persona import generate_personas
 
@@ -64,13 +64,38 @@ class RoomManager:
         self._settings = settings
         self._rooms: dict[str, Room] = {}
 
-    def create_room(self, *, subject: str, models: list[str], seed: int | None = None) -> Room:
+    def create_room(
+        self,
+        *,
+        subject: str,
+        models: list[str],
+        conversation_mode: ConversationMode,
+        global_instruction: str,
+        turn_interval_seconds: float,
+        seed: int | None = None,
+    ) -> Room:
         if not models:
             raise ValueError("At least one model is required.")
         room_id = uuid4().hex[:8]
-        rng = Random(seed)
-        agents = generate_personas(models=models, subject=subject, rng=rng)
-        room = Room(room_id=room_id, subject=subject, agents=agents, rng=rng)
+        persona_seed = seed if seed is not None else int(room_id, 16)
+        rng = Random(persona_seed)
+        agents = self._build_agents(
+            models=models,
+            subject=subject,
+            conversation_mode=conversation_mode,
+            global_instruction=global_instruction,
+            persona_seed=persona_seed,
+        )
+        room = Room(
+            room_id=room_id,
+            subject=subject,
+            agents=agents,
+            rng=rng,
+            persona_seed=persona_seed,
+            conversation_mode=conversation_mode,
+            global_instruction=global_instruction.strip(),
+            turn_interval_seconds=turn_interval_seconds,
+        )
         self._rooms[room_id] = room
         return room
 
@@ -112,6 +137,44 @@ class RoomManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         await self._broadcast_room_state(room)
+
+    async def update_room_config(
+        self,
+        room_id: str,
+        *,
+        conversation_mode: ConversationMode | None = None,
+        global_instruction: str | None = None,
+        turn_interval_seconds: float | None = None,
+    ) -> Room:
+        room = self.get_room(room_id)
+        async with room.lock:
+            mode_changed = False
+            if conversation_mode is not None and conversation_mode != room.conversation_mode:
+                if room.running:
+                    raise RuntimeError("Cannot update conversation mode while running.")
+                room.conversation_mode = conversation_mode
+                mode_changed = True
+
+            if global_instruction is not None:
+                normalized = global_instruction.strip()
+                if normalized != room.global_instruction:
+                    if room.running:
+                        raise RuntimeError("Cannot update global instruction while running.")
+                    room.global_instruction = normalized
+                    mode_changed = True
+
+            if turn_interval_seconds is not None:
+                room.turn_interval_seconds = turn_interval_seconds
+
+            if mode_changed:
+                room.agents = self._build_agents(
+                    models=[agent.model for agent in room.agents],
+                    subject=room.subject,
+                    conversation_mode=room.conversation_mode,
+                    global_instruction=room.global_instruction,
+                    persona_seed=room.persona_seed,
+                )
+        return room
 
     async def add_user_message(self, room_id: str, content: str) -> ChatMessage:
         room = self.get_room(room_id)
@@ -181,6 +244,8 @@ class RoomManager:
                         display_name=speaker.display_name,
                         role_type=speaker.role_type,
                         subject=room.subject,
+                        conversation_mode=room.conversation_mode,
+                        global_instruction=room.global_instruction,
                         act_name=room.current_act,
                         act_goal=act_goal,
                         persona_prompt=speaker.persona_prompt,
@@ -228,7 +293,7 @@ class RoomManager:
                             },
                         )
                         break
-                    await asyncio.sleep(self._settings.loop_interval_seconds)
+                    await asyncio.sleep(room.turn_interval_seconds)
                     continue
 
                 message = ChatMessage(
@@ -244,7 +309,7 @@ class RoomManager:
                     room, {"type": "message", "payload": self._serialize_message(message)}
                 )
 
-                await asyncio.sleep(self._settings.loop_interval_seconds)
+                await asyncio.sleep(room.turn_interval_seconds)
 
             if room.stop_requested:
                 end_reason = room.stop_reason or "manual_stop"
@@ -401,6 +466,9 @@ class RoomManager:
                 "generation_logs": [
                     RoomManager._serialize_generation_log(log) for log in room.generation_logs
                 ],
+                "conversation_mode": room.conversation_mode,
+                "global_instruction": room.global_instruction,
+                "turn_interval_seconds": room.turn_interval_seconds,
                 "agents": [
                     {
                         "agent_id": agent.agent_id,
@@ -414,3 +482,21 @@ class RoomManager:
                 "messages": [RoomManager._serialize_message(message) for message in room.messages],
             },
         }
+
+    @staticmethod
+    def _build_agents(
+        *,
+        models: list[str],
+        subject: str,
+        conversation_mode: ConversationMode,
+        global_instruction: str,
+        persona_seed: int,
+    ) -> list[AgentSpec]:
+        persona_rng = Random(persona_seed)
+        return generate_personas(
+            models=models,
+            subject=subject,
+            mode=conversation_mode,
+            global_instruction=global_instruction,
+            rng=persona_rng,
+        )

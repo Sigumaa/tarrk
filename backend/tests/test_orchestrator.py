@@ -18,6 +18,8 @@ class StaticLLM:
         display_name: str,
         role_type: str,
         subject: str,
+        conversation_mode: str,
+        global_instruction: str,
         act_name: str,
         act_goal: str,
         persona_prompt: str,
@@ -35,6 +37,8 @@ class FailingLLM:
         display_name: str,
         role_type: str,
         subject: str,
+        conversation_mode: str,
+        global_instruction: str,
         act_name: str,
         act_goal: str,
         persona_prompt: str,
@@ -99,7 +103,14 @@ def test_resolve_act_changes_with_progress() -> None:
 @pytest.mark.asyncio
 async def test_room_loop_finishes_with_summary_on_max_rounds() -> None:
     manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=6))
-    room = manager.create_room(subject="ピザ論争", models=["m1", "m2"], seed=1)
+    room = manager.create_room(
+        subject="ピザ論争",
+        models=["m1", "m2"],
+        conversation_mode="philosophy_debate",
+        global_instruction="",
+        turn_interval_seconds=0.0,
+        seed=1,
+    )
 
     await manager.start_room(room.room_id)
     await asyncio.sleep(0.06)
@@ -116,7 +127,14 @@ async def test_room_stops_after_consecutive_failures() -> None:
         llm_client=FailingLLM(),
         settings=_build_settings(max_consecutive_failures=2),
     )
-    room = manager.create_room(subject="fail", models=["m1"], seed=4)
+    room = manager.create_room(
+        subject="fail",
+        models=["m1"],
+        conversation_mode="philosophy_debate",
+        global_instruction="",
+        turn_interval_seconds=0.0,
+        seed=4,
+    )
 
     await manager.start_room(room.room_id, max_rounds=10)
     await asyncio.sleep(0.05)
@@ -129,7 +147,14 @@ async def test_room_stops_after_consecutive_failures() -> None:
 @pytest.mark.asyncio
 async def test_room_emits_generation_logs() -> None:
     manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=2))
-    room = manager.create_room(subject="ログ確認", models=["m1", "m2"], seed=5)
+    room = manager.create_room(
+        subject="ログ確認",
+        models=["m1", "m2"],
+        conversation_mode="philosophy_debate",
+        global_instruction="",
+        turn_interval_seconds=0.0,
+        seed=5,
+    )
 
     await manager.start_room(room.room_id)
     await asyncio.sleep(0.05)
@@ -146,7 +171,14 @@ async def test_room_can_be_concluded_by_user() -> None:
         llm_client=StaticLLM(),
         settings=_build_settings(default_max_rounds=500, loop_interval_seconds=0.02),
     )
-    room = manager.create_room(subject="自由意志", models=["m1", "m2"], seed=6)
+    room = manager.create_room(
+        subject="自由意志",
+        models=["m1", "m2"],
+        conversation_mode="philosophy_debate",
+        global_instruction="",
+        turn_interval_seconds=0.02,
+        seed=6,
+    )
 
     await manager.start_room(room.room_id)
     await asyncio.sleep(0)
@@ -155,3 +187,48 @@ async def test_room_can_be_concluded_by_user() -> None:
 
     assert room.running is False
     assert room.end_reason == "user_concluded"
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_rebuilds_personas_before_start() -> None:
+    manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=10))
+    room = manager.create_room(
+        subject="意識のハードプロブレム",
+        models=["m1", "m2", "m3"],
+        conversation_mode="philosophy_debate",
+        global_instruction="",
+        turn_interval_seconds=0.5,
+        seed=7,
+    )
+
+    original_profiles = [agent.character_profile for agent in room.agents]
+    updated = await manager.update_room_config(
+        room.room_id,
+        conversation_mode="devils_advocate",
+        global_instruction="反証を重視すること",
+        turn_interval_seconds=0.1,
+    )
+
+    assert updated.conversation_mode == "devils_advocate"
+    assert updated.global_instruction == "反証を重視すること"
+    assert updated.turn_interval_seconds == 0.1
+    assert [agent.character_profile for agent in updated.agents] != original_profiles
+
+
+@pytest.mark.asyncio
+async def test_update_room_config_rejects_mode_change_while_running() -> None:
+    manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=300))
+    room = manager.create_room(
+        subject="自由意志",
+        models=["m1", "m2"],
+        conversation_mode="philosophy_debate",
+        global_instruction="",
+        turn_interval_seconds=0.03,
+        seed=8,
+    )
+    await manager.start_room(room.room_id)
+
+    with pytest.raises(RuntimeError):
+        await manager.update_room_config(room.room_id, conversation_mode="consensus_lab")
+
+    await manager.stop_room(room.room_id, reason="manual_stop")
