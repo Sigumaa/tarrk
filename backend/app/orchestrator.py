@@ -111,6 +111,7 @@ class RoomManager:
             if room.running:
                 return
             room.running = True
+            room.paused = False
             room.stop_requested = False
             room.stop_reason = None
             room.fail_streak = 0
@@ -129,6 +130,7 @@ class RoomManager:
         async with room.lock:
             task = room.task
             room.running = False
+            room.paused = False
             room.stop_requested = True
             room.stop_reason = reason
             room.task = None
@@ -136,6 +138,22 @@ class RoomManager:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        await self._broadcast_room_state(room)
+
+    async def pause_room(self, room_id: str) -> None:
+        room = self.get_room(room_id)
+        async with room.lock:
+            if not room.running:
+                return
+            room.paused = True
+        await self._broadcast_room_state(room)
+
+    async def resume_room(self, room_id: str) -> None:
+        room = self.get_room(room_id)
+        async with room.lock:
+            if not room.running:
+                return
+            room.paused = False
         await self._broadcast_room_state(room)
 
     async def update_room_config(
@@ -203,6 +221,11 @@ class RoomManager:
         end_reason = "max_rounds"
         try:
             while room.running and rounds < max_rounds:
+                if room.paused:
+                    pause_wait = max(self._settings.loop_interval_seconds, 0.02)
+                    await asyncio.sleep(pause_wait)
+                    continue
+
                 room.current_act, act_goal = resolve_act(
                     rounds_completed=rounds, max_rounds=max_rounds
                 )
@@ -331,6 +354,7 @@ class RoomManager:
                 )
 
             room.running = False
+            room.paused = False
             room.task = None
             room.current_act = "終了"
             await self._broadcast_room_state(room)
@@ -346,6 +370,7 @@ class RoomManager:
                 "payload": {
                     "room_id": room.room_id,
                     "running": room.running,
+                    "paused": room.paused,
                     "current_act": room.current_act,
                     "rounds_completed": room.rounds_completed,
                     "end_reason": room.end_reason,
@@ -460,6 +485,7 @@ class RoomManager:
                 "room_id": room.room_id,
                 "subject": room.subject,
                 "running": room.running,
+                "paused": room.paused,
                 "current_act": room.current_act,
                 "rounds_completed": room.rounds_completed,
                 "end_reason": room.end_reason,

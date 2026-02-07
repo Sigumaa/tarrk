@@ -64,6 +64,7 @@ class Room:
     fail_streak: int = 0
     rounds_completed: int = 0
     current_act: str = "導入"
+    paused: bool = False
     topic_card_used: bool = False
     stop_requested: bool = False
     stop_reason: str | None = None

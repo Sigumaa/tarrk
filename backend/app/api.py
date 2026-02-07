@@ -122,6 +122,28 @@ async def stop_room(room_id: str, manager: RoomManagerDep) -> StatusResponse:
     return StatusResponse(status="stopped")
 
 
+@router.post("/room/{room_id}/pause", response_model=StatusResponse)
+async def pause_room(room_id: str, manager: RoomManagerDep) -> StatusResponse:
+    try:
+        await manager.pause_room(room_id=room_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found."
+        ) from exc
+    return StatusResponse(status="paused")
+
+
+@router.post("/room/{room_id}/resume", response_model=StatusResponse)
+async def resume_room(room_id: str, manager: RoomManagerDep) -> StatusResponse:
+    try:
+        await manager.resume_room(room_id=room_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found."
+        ) from exc
+    return StatusResponse(status="running")
+
+
 @router.post("/room/{room_id}/conclude", response_model=StatusResponse)
 async def conclude_room(room_id: str, manager: RoomManagerDep) -> StatusResponse:
     try:

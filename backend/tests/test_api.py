@@ -86,6 +86,14 @@ def test_room_api_lifecycle() -> None:
     assert start_response.status_code == 200
     assert start_response.json() == {"status": "running"}
 
+    pause_response = client.post(f"/api/room/{room_id}/pause")
+    assert pause_response.status_code == 200
+    assert pause_response.json() == {"status": "paused"}
+
+    resume_response = client.post(f"/api/room/{room_id}/resume")
+    assert resume_response.status_code == 200
+    assert resume_response.json() == {"status": "running"}
+
     time.sleep(0.03)
 
     user_response = client.post(
@@ -107,6 +115,12 @@ def test_room_api_returns_404_for_unknown_room() -> None:
 
     conclude_response = client.post("/api/room/missing-room/conclude")
     assert conclude_response.status_code == 404
+
+    pause_response = client.post("/api/room/missing-room/pause")
+    assert pause_response.status_code == 404
+
+    resume_response = client.post("/api/room/missing-room/resume")
+    assert resume_response.status_code == 404
 
     config_response = client.post(
         "/api/room/missing-room/config",

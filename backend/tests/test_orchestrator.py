@@ -190,6 +190,40 @@ async def test_room_can_be_concluded_by_user() -> None:
 
 
 @pytest.mark.asyncio
+async def test_room_can_pause_and_resume_without_advancing_rounds() -> None:
+    manager = RoomManager(
+        llm_client=StaticLLM(),
+        settings=_build_settings(default_max_rounds=500, loop_interval_seconds=0.01),
+    )
+    room = manager.create_room(
+        subject="意識",
+        models=["m1", "m2"],
+        conversation_mode="philosophy_debate",
+        global_instruction="",
+        turn_interval_seconds=0.02,
+        seed=9,
+    )
+
+    await manager.start_room(room.room_id)
+    await asyncio.sleep(0.08)
+
+    await manager.pause_room(room.room_id)
+    await asyncio.sleep(0.03)
+    paused_rounds = room.rounds_completed
+    assert room.paused is True
+
+    await asyncio.sleep(0.08)
+    assert room.rounds_completed == paused_rounds
+
+    await manager.resume_room(room.room_id)
+    assert room.paused is False
+    await asyncio.sleep(0.08)
+    assert room.rounds_completed > paused_rounds
+
+    await manager.stop_room(room.room_id, reason="manual_stop")
+
+
+@pytest.mark.asyncio
 async def test_update_room_config_rebuilds_personas_before_start() -> None:
     manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=10))
     room = manager.create_room(
