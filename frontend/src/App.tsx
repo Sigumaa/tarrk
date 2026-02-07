@@ -33,12 +33,13 @@ type SnapshotPayload = {
   current_act: string
   rounds_completed: number
   end_reason?: string | null
+  generation_logs?: GenerationLog[]
   agents: Agent[]
   messages: ChatMessage[]
 }
 
 type SocketEvent = {
-  type: 'room_snapshot' | 'room_state' | 'message' | 'error'
+  type: 'room_snapshot' | 'room_state' | 'message' | 'generation_log' | 'error'
   payload: unknown
 }
 
@@ -46,6 +47,16 @@ type Highlights = {
   quote: string
   conflict: string
   agreement: string
+}
+
+type GenerationLog = {
+  round_index: number
+  model: string
+  display_name: string
+  act: string
+  status: 'requesting' | 'completed' | 'failed'
+  detail: string
+  timestamp: string
 }
 
 const MODEL_OPTIONS = [
@@ -110,6 +121,7 @@ function App() {
   const [selectedModels, setSelectedModels] = useState<string[]>(MODEL_OPTIONS.slice(0, 3))
   const [room, setRoom] = useState<RoomPayload | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [generationLogs, setGenerationLogs] = useState<GenerationLog[]>([])
   const [userInput, setUserInput] = useState('')
   const [running, setRunning] = useState(false)
   const [currentAct, setCurrentAct] = useState('導入')
@@ -147,6 +159,7 @@ function App() {
           agents: payload.agents ?? [],
         })
         setMessages(payload.messages ?? [])
+        setGenerationLogs(payload.generation_logs ?? [])
         setRunning(payload.running)
         setCurrentAct(payload.current_act ?? '導入')
         setRoundsCompleted(payload.rounds_completed ?? 0)
@@ -174,6 +187,16 @@ function App() {
       if (parsed.type === 'message') {
         const payload = parsed.payload as ChatMessage
         setMessages((prev) => [...prev, payload])
+        return
+      }
+      if (parsed.type === 'generation_log') {
+        const payload = parsed.payload as GenerationLog
+        setGenerationLogs((prev) => [...prev, payload].slice(-120))
+        if (payload.status === 'requesting') {
+          setStatus(`アクセス中: ${payload.display_name} (${payload.act})`)
+        } else if (payload.status === 'failed') {
+          setStatus(`呼び出し失敗: ${payload.display_name}`)
+        }
         return
       }
       if (parsed.type === 'error') {
@@ -220,6 +243,7 @@ function App() {
       })
       setRoom(payload)
       setMessages([])
+      setGenerationLogs([])
       setCurrentAct('導入')
       setRoundsCompleted(0)
       setRunning(false)
@@ -281,6 +305,7 @@ function App() {
     }
     setRoom(null)
     setMessages([])
+    setGenerationLogs([])
     setCurrentAct('導入')
     setRoundsCompleted(0)
     setRunning(false)
@@ -409,6 +434,26 @@ function App() {
                 </li>
               ))}
             </ul>
+            <section className="logs-panel">
+              <h3>アクセスログ</h3>
+              <ul className="logs-list">
+                {generationLogs.length === 0 ? (
+                  <li className="log-empty">ログはまだありません。</li>
+                ) : (
+                  generationLogs.map((log, index) => (
+                    <li key={`${log.timestamp}-${index}`} className={`log-item log-${log.status}`}>
+                      <p className="log-main">
+                        R{log.round_index} {log.status} {log.display_name}
+                      </p>
+                      <p className="log-sub">
+                        幕: {log.act}
+                        {log.detail ? ` / ${log.detail}` : ''}
+                      </p>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </section>
           </aside>
         </section>
       )}
@@ -417,4 +462,3 @@ function App() {
 }
 
 export default App
-

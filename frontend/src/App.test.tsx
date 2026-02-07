@@ -163,4 +163,70 @@ describe('App', () => {
     expect(await screen.findByText('幕: 具体化')).toBeInTheDocument()
     expect(await screen.findByText('発話: 7')).toBeInTheDocument()
   })
+
+  it('renders generation logs and updates status while requesting model calls', async () => {
+    const mockedFetch = vi.mocked(fetch)
+    mockedFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          room_id: 'room-3',
+          subject: 'ログ検証',
+          agents: [
+            {
+              agent_id: 'agent-1',
+              model: 'm1',
+              display_name: 'm1',
+              role_type: 'facilitator',
+              character_profile: '',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+
+    render(<App />)
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 1時間で作れる面白いWebサービス案を考える'),
+      'ログ検証',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
+    expect(await screen.findByText('Room: room-3')).toBeInTheDocument()
+
+    act(() => {
+      MockWebSocket.instances[0].emit({
+        type: 'generation_log',
+        payload: {
+          round_index: 3,
+          model: 'm1',
+          display_name: 'm1',
+          act: '具体化',
+          status: 'requesting',
+          detail: '',
+          timestamp: '2026-01-01T00:02:00Z',
+        },
+      })
+    })
+
+    expect(await screen.findByText('アクセス中: m1 (具体化)')).toBeInTheDocument()
+    expect(await screen.findByText('R3 requesting m1')).toBeInTheDocument()
+
+    act(() => {
+      MockWebSocket.instances[0].emit({
+        type: 'generation_log',
+        payload: {
+          round_index: 3,
+          model: 'm1',
+          display_name: 'm1',
+          act: '具体化',
+          status: 'failed',
+          detail: 'OpenRouter API error',
+          timestamp: '2026-01-01T00:02:03Z',
+        },
+      })
+    })
+
+    expect(await screen.findByText('呼び出し失敗: m1')).toBeInTheDocument()
+    expect(await screen.findByText('幕: 具体化 / OpenRouter API error')).toBeInTheDocument()
+  })
 })
