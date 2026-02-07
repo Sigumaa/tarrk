@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import httpx
+
 from app.models import ChatMessage
 from app.openrouter import OpenRouterClient
 
@@ -34,3 +36,30 @@ def test_render_history_handles_priority_and_empty_case() -> None:
 
     assert "agent-1: まず要件整理しよう" in rendered
     assert "user(priority): コストも重視して" in rendered
+
+
+def test_extract_error_detail_prefers_nested_error_message() -> None:
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    response = httpx.Response(
+        status_code=400,
+        json={"error": {"code": "bad_request", "message": "Model is not available for this key."}},
+        request=request,
+    )
+    detail = OpenRouterClient._extract_error_detail(response)
+    assert detail == "bad_request: Model is not available for this key."
+
+
+def test_should_retry_without_temperature_matches_temperature_error() -> None:
+    should_retry = OpenRouterClient._should_retry_without_temperature(
+        400,
+        "Unsupported parameter: temperature",
+    )
+    assert should_retry is True
+
+
+def test_render_history_truncates_very_long_history() -> None:
+    long_text = "a" * 7000
+    history = [ChatMessage(role="agent", speaker_id="agent-1", content=long_text)]
+    rendered = OpenRouterClient._render_history(history=history, priority_message=None)
+    assert rendered.startswith("（履歴が長いため末尾のみ利用）")
+    assert len(rendered) <= 6100
