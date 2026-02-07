@@ -73,6 +73,13 @@
   margin: 0;
 }
 
+.field-counter {
+  color: #64748b;
+  font-size: 0.74rem;
+  margin: 0;
+  text-align: right;
+}
+
 input,
 textarea,
 select {

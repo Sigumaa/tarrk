@@ -128,6 +128,9 @@ const SPEAKER_ACCENT_COLORS = [
   '#4d7c0f',
 ]
 
+const SUBJECT_MAX_LENGTH = 2000
+const GLOBAL_INSTRUCTION_MAX_LENGTH = 1200
+
 function speedLabel(value: number): string {
   const matched = SPEED_OPTIONS.find((item) => Math.abs(item.value - value) < 1e-6)
   if (matched) {
@@ -352,6 +355,10 @@ function App() {
       setStatus('議論したいお題を入力してください。')
       return
     }
+    if (cleanSubject.length > SUBJECT_MAX_LENGTH) {
+      setStatus(`お題は${SUBJECT_MAX_LENGTH}文字以内で入力してください。`)
+      return
+    }
     if (selectedModels.length === 0) {
       setStatus('最低1モデルを選択してください。')
       return
@@ -446,6 +453,11 @@ function App() {
 
   const applyRoomConfig = async () => {
     if (!room) return
+    const normalizedInstruction = globalInstruction.trim()
+    if (normalizedInstruction.length > GLOBAL_INSTRUCTION_MAX_LENGTH) {
+      setStatus(`全体指示は${GLOBAL_INSTRUCTION_MAX_LENGTH}文字以内で入力してください。`)
+      return
+    }
 
     const payload: {
       conversation_mode?: ConversationMode
@@ -457,7 +469,7 @@ function App() {
 
     if (!running) {
       payload.conversation_mode = conversationMode
-      payload.global_instruction = globalInstruction.trim()
+      payload.global_instruction = normalizedInstruction
     }
 
     try {
@@ -550,8 +562,12 @@ function App() {
               value={subject}
               onChange={(event) => setSubject(event.target.value)}
               placeholder="例: 自由意志は幻想か、それとも実在するか"
+              maxLength={SUBJECT_MAX_LENGTH}
               rows={3}
             />
+            <p className="field-counter">
+              {subject.length} / {SUBJECT_MAX_LENGTH}
+            </p>
           </label>
 
           <div className="field">
@@ -577,8 +593,12 @@ function App() {
               value={globalInstruction}
               onChange={(event) => setGlobalInstruction(event.target.value)}
               placeholder="例: 具体例を必ず含める。倫理と長期影響を優先する。"
+              maxLength={GLOBAL_INSTRUCTION_MAX_LENGTH}
               rows={3}
             />
+            <p className="field-counter">
+              {globalInstruction.length} / {GLOBAL_INSTRUCTION_MAX_LENGTH}
+            </p>
           </label>
 
           <div className="field speed-row">
@@ -761,7 +781,11 @@ function App() {
                   onChange={(event) => setGlobalInstruction(event.target.value)}
                   rows={4}
                   placeholder="開始前なら自由に調整できます"
+                  maxLength={GLOBAL_INSTRUCTION_MAX_LENGTH}
                 />
+                <p className="field-counter">
+                  {globalInstruction.length} / {GLOBAL_INSTRUCTION_MAX_LENGTH}
+                </p>
               </label>
               <button className="primary" onClick={applyRoomConfig}>
                 {running ? '待機時間のみ反映' : '議論設定を反映'}

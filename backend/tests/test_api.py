@@ -127,3 +127,21 @@ def test_room_api_returns_404_for_unknown_room() -> None:
         json={"turn_interval_seconds": 0.1},
     )
     assert config_response.status_code == 404
+
+
+def test_room_create_subject_length_limit() -> None:
+    client, _ = build_client()
+    valid_subject = "a" * 2000
+    invalid_subject = "b" * 2001
+
+    valid_response = client.post(
+        "/api/room/create",
+        json={"subject": valid_subject, "models": ["m1"]},
+    )
+    assert valid_response.status_code == 200
+
+    invalid_response = client.post(
+        "/api/room/create",
+        json={"subject": invalid_subject, "models": ["m1"]},
+    )
+    assert invalid_response.status_code == 422

@@ -50,6 +50,13 @@ describe('App', () => {
 
     expect(screen.getByText('議論の進め方')).toBeInTheDocument()
     expect(screen.getByText('1発話ごとの待機時間')).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
+    ).toHaveAttribute('maxlength', '2000')
+    expect(
+      screen.getByPlaceholderText('例: 具体例を必ず含める。倫理と長期影響を優先する。'),
+    ).toHaveAttribute('maxlength', '1200')
+    expect(screen.getByText('0 / 2000')).toBeInTheDocument()
     expect(screen.getByText('moonshotai/kimi-k2.5')).toBeInTheDocument()
     expect(screen.getByText('deepseek/deepseek-v3.2')).toBeInTheDocument()
     expect(screen.getByText('minimax/minimax-m2.1')).toBeInTheDocument()

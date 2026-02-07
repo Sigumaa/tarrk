@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api")
 
 
 class CreateRoomRequest(BaseModel):
-    subject: str = Field(min_length=1, max_length=500)
+    subject: str = Field(min_length=1, max_length=2000)
     models: list[str] = Field(min_length=1, max_length=8)
     conversation_mode: ConversationMode = "philosophy_debate"
     global_instruction: str = Field(default="", max_length=1200)
