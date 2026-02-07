@@ -140,9 +140,9 @@ textarea {
 }
 
 .members-panel {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 0.56rem;
+  grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -301,6 +301,11 @@ button:disabled {
 
 .msg-agent {
   background: #f8fafc;
+  border-left: 4px solid var(--speaker-accent, #94a3b8);
+}
+
+.msg-agent .meta {
+  color: var(--speaker-accent, #475569);
 }
 
 .msg-card {
@@ -355,7 +360,8 @@ button:disabled {
   border-radius: 0.52rem;
   display: flex;
   flex-direction: column;
-  min-height: 120px;
+  max-height: 23vh;
+  min-height: 0;
   padding: 0.45rem;
 }
 
@@ -366,6 +372,7 @@ button:disabled {
 
 .pins-list {
   display: grid;
+  flex: 1;
   gap: 0.34rem;
   list-style: none;
   margin: 0.4rem 0 0;
@@ -401,6 +408,15 @@ button:disabled {
   margin: 0;
 }
 
+.members-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.52rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.45rem;
+}
+
 .members-note {
   color: #64748b;
   font-size: 0.78rem;
@@ -409,10 +425,10 @@ button:disabled {
 
 .members-list {
   display: grid;
+  flex: 1;
   gap: 0.38rem;
   list-style: none;
   margin: 0;
-  max-height: 26%;
   min-height: 0;
   overflow: auto;
   padding: 0;
@@ -421,8 +437,23 @@ button:disabled {
 .member-item {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
+  border-left: 4px solid var(--speaker-accent, #94a3b8);
   border-radius: 0.5rem;
   padding: 0.45rem;
+}
+
+.member-head {
+  align-items: center;
+  display: flex;
+  gap: 0.38rem;
+}
+
+.member-dot {
+  background: var(--speaker-accent, #94a3b8);
+  border-radius: 999px;
+  display: inline-block;
+  flex: 0 0 0.52rem;
+  height: 0.52rem;
 }
 
 .member-name {
@@ -448,14 +479,14 @@ button:disabled {
   border: 1px solid #e2e8f0;
   border-radius: 0.5rem;
   display: flex;
-  flex: 1;
   flex-direction: column;
-  min-height: 160px;
+  min-height: 0;
   padding: 0.44rem;
 }
 
 .logs-list {
   display: grid;
+  flex: 1;
   gap: 0.34rem;
   list-style: none;
   margin: 0.38rem 0 0;
@@ -467,6 +498,7 @@ button:disabled {
 .log-item {
   background: #ffffff;
   border: 1px solid #e2e8f0;
+  border-left: 4px solid var(--speaker-accent, #94a3b8);
   border-radius: 0.45rem;
   padding: 0.34rem 0.42rem;
 }
@@ -539,11 +571,21 @@ button:disabled {
     min-height: 42vh;
   }
 
+  .members-panel {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .pins-panel {
+    max-height: none;
+  }
+
   .members-list {
     max-height: none;
   }
 
+  .members-section,
   .logs-panel {
-    min-height: 220px;
+    min-height: 200px;
   }
 }

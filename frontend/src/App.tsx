@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { CSSProperties, FormEvent } from 'react'
 import './App.css'
 
 type MessageRole = 'user' | 'agent'
@@ -107,6 +107,17 @@ const END_REASON_LABEL: Record<string, string> = {
   failures: '連続エラー',
 }
 
+const SPEAKER_ACCENT_COLORS = [
+  '#0f766e',
+  '#1d4ed8',
+  '#7c3aed',
+  '#be185d',
+  '#b45309',
+  '#9333ea',
+  '#0369a1',
+  '#4d7c0f',
+]
+
 function speedLabel(value: number): string {
   const matched = SPEED_OPTIONS.find((item) => Math.abs(item.value - value) < 1e-6)
   if (matched) {
@@ -121,6 +132,14 @@ function modeLabel(mode: ConversationMode): string {
 
 function messageKey(message: ChatMessage, index: number): string {
   return `${message.timestamp}-${index}`
+}
+
+function speakerColor(input: string): string {
+  let hash = 0
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash * 31 + input.charCodeAt(index)) >>> 0
+  }
+  return SPEAKER_ACCENT_COLORS[hash % SPEAKER_ACCENT_COLORS.length]
 }
 
 async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
@@ -160,6 +179,27 @@ function App() {
 
   const socketRef = useRef<WebSocket | null>(null)
   const messageListRef = useRef<HTMLUListElement | null>(null)
+
+  const speakerAccentMap = useMemo(() => {
+    const accents = new Map<string, string>()
+    for (const agent of room?.agents ?? []) {
+      const accent = speakerColor(agent.display_name || agent.model || agent.agent_id)
+      accents.set(agent.agent_id, accent)
+      accents.set(agent.display_name, accent)
+      accents.set(agent.model, accent)
+    }
+    return accents
+  }, [room?.agents])
+
+  const resolveSpeakerAccent = (speakerId: string): string => {
+    if (speakerId === '総括' || speakerId === 'お題カード') {
+      return '#475569'
+    }
+    return speakerAccentMap.get(speakerId) ?? speakerColor(speakerId)
+  }
+
+  const accentStyle = (speakerId: string): CSSProperties =>
+    ({ ['--speaker-accent' as const]: resolveSpeakerAccent(speakerId) }) as CSSProperties
 
   const pinnedMessages = useMemo(
     () =>
@@ -574,6 +614,7 @@ function App() {
                   return (
                     <li
                       key={key}
+                      style={message.role === 'agent' ? accentStyle(message.speaker_id) : undefined}
                       className={`msg msg-${message.role} ${
                         message.speaker_id === '総括' ? 'msg-summary' : ''
                       } ${message.speaker_id === 'お題カード' ? 'msg-card' : ''}`}
@@ -655,15 +696,18 @@ function App() {
               </ul>
             </section>
 
-            <section>
+            <section className="members-section">
               <h3>参加モデル</h3>
               <p className="members-note">
                 役割は自動設定です（ファシリテーター1名 + お題依存キャラクター）。
               </p>
               <ul className="members-list">
                 {room.agents.map((agent) => (
-                  <li key={agent.agent_id} className="member-item">
-                    <p className="member-name">{agent.display_name}</p>
+                  <li key={agent.agent_id} className="member-item" style={accentStyle(agent.display_name)}>
+                    <div className="member-head">
+                      <span className="member-dot" aria-hidden="true" />
+                      <p className="member-name">{agent.display_name}</p>
+                    </div>
                     <p className="member-role">
                       {agent.role_type === 'facilitator' ? 'ファシリテーター' : 'キャラクター'}
                     </p>
@@ -682,7 +726,11 @@ function App() {
                   <li className="log-empty">ログはまだありません。</li>
                 ) : (
                   generationLogs.map((log, index) => (
-                    <li key={`${log.timestamp}-${index}`} className={`log-item log-${log.status}`}>
+                    <li
+                      key={`${log.timestamp}-${index}`}
+                      className={`log-item log-${log.status}`}
+                      style={accentStyle(log.display_name)}
+                    >
                       <p className="log-main">
                         R{log.round_index} {log.status} {log.display_name}
                       </p>

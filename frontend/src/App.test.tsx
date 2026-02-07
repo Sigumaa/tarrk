@@ -232,6 +232,81 @@ describe('App', () => {
     expect(await screen.findByText('幕: 具体化 / OpenRouter API error')).toBeInTheDocument()
   })
 
+  it('applies a consistent speaker accent across member card, message, and access log', async () => {
+    const mockedFetch = vi.mocked(fetch)
+    mockedFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          room_id: 'room-3b',
+          subject: '配色確認',
+          conversation_mode: 'philosophy_debate',
+          global_instruction: '',
+          turn_interval_seconds: 0.5,
+          agents: [
+            {
+              agent_id: 'agent-1',
+              model: 'x-ai/grok-4.1-fast',
+              display_name: 'x-ai/grok-4.1-fast',
+              role_type: 'facilitator',
+              character_profile: '',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+
+    render(<App />)
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
+      '配色確認',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
+    expect(await screen.findByText('Room: room-3b')).toBeInTheDocument()
+
+    act(() => {
+      MockWebSocket.instances[0].emit({
+        type: 'message',
+        payload: {
+          role: 'agent',
+          speaker_id: 'x-ai/grok-4.1-fast',
+          content: '観察可能な現象として定義から始めましょう。',
+          timestamp: '2026-01-01T00:03:00Z',
+        },
+      })
+      MockWebSocket.instances[0].emit({
+        type: 'generation_log',
+        payload: {
+          round_index: 2,
+          model: 'x-ai/grok-4.1-fast',
+          display_name: 'x-ai/grok-4.1-fast',
+          act: '導入',
+          status: 'requesting',
+          detail: '',
+          timestamp: '2026-01-01T00:03:02Z',
+        },
+      })
+    })
+
+    const membersSection = screen.getByRole('heading', { name: '参加モデル' }).closest('section')
+    expect(membersSection).toHaveClass('members-section')
+
+    const memberItem = membersSection?.querySelector('.member-item') as HTMLElement | null
+    expect(memberItem).not.toBeNull()
+    const memberAccent = memberItem?.style.getPropertyValue('--speaker-accent') ?? ''
+    expect(memberAccent).not.toBe('')
+
+    const messageItem = screen.getByText('観察可能な現象として定義から始めましょう。')
+      .closest('.msg-agent') as HTMLElement | null
+    expect(messageItem).not.toBeNull()
+    expect(messageItem?.style.getPropertyValue('--speaker-accent')).toBe(memberAccent)
+
+    const logItem = screen.getByText('R2 requesting x-ai/grok-4.1-fast')
+      .closest('.log-item') as HTMLElement | null
+    expect(logItem).not.toBeNull()
+    expect(logItem?.style.getPropertyValue('--speaker-accent')).toBe(memberAccent)
+  })
+
   it('calls conclude endpoint when user clicks the conclude button', async () => {
     const mockedFetch = vi.mocked(fetch)
     mockedFetch
