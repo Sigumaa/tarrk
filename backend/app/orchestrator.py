@@ -8,9 +8,25 @@ from uuid import uuid4
 from fastapi import WebSocket
 
 from app.config import Settings
-from app.models import AgentSpec, ChatMessage, RoleType, Room
+from app.models import AgentSpec, ChatMessage, Room
 from app.openrouter import LLMClient
-from app.persona import build_persona_prompt, generate_personas
+from app.persona import generate_personas
+
+ACTS: tuple[tuple[str, str], ...] = (
+    ("導入", "お題の前提をそろえ、立場を短く提示する。"),
+    ("衝突", "視点の違いをぶつけ、対立点を明確にする。"),
+    ("具体化", "実行可能な案・手順・条件に落とし込む。"),
+    ("締め", "合意点と未解決点を整理して着地させる。"),
+)
+
+CONCLUSION_KEYWORDS: tuple[str, ...] = (
+    "結論",
+    "まとめると",
+    "最終的に",
+    "採用",
+    "合意",
+    "これでいく",
+)
 
 
 def choose_next_speaker(
@@ -31,6 +47,32 @@ def trim_history(messages: list[ChatMessage], limit: int) -> list[ChatMessage]:
     if limit <= 0:
         return []
     return messages[-limit:]
+
+
+def resolve_act(rounds_completed: int, max_rounds: int) -> tuple[str, str]:
+    if max_rounds <= 0:
+        return ACTS[0]
+    index = min(len(ACTS) - 1, int((rounds_completed / max_rounds) * len(ACTS)))
+    return ACTS[index]
+
+
+def has_conclusion_signal(text: str) -> bool:
+    return any(keyword in text for keyword in CONCLUSION_KEYWORDS)
+
+
+def normalize_message_text(text: str) -> str:
+    translation_table = str.maketrans("", "", " \n\t。、，,.!！？!?「」『』（）()")
+    return text.lower().translate(translation_table)
+
+
+def build_topic_card(subject: str, rng: Random) -> str:
+    cards = (
+        f"お題カード: 「{subject}」を30秒デモにするなら、最初に見せる一手は何？",
+        f"お題カード: 「{subject}」で一番炎上しそうな点を先に潰すなら？",
+        f"お題カード: 「{subject}」を無料で試せる形にするには？",
+        f"お題カード: 「{subject}」を友達に1文で勧めるなら？",
+    )
+    return rng.choice(cards)
 
 
 class RoomManager:
@@ -61,7 +103,12 @@ class RoomManager:
             if room.running:
                 return
             room.running = True
+            room.stop_requested = False
             room.fail_streak = 0
+            room.rounds_completed = 0
+            room.current_act = ACTS[0][0]
+            room.end_reason = None
+            room.topic_card_used = False
             target_rounds = max_rounds or self._settings.default_max_rounds
             room.task = asyncio.create_task(
                 self._run_room_loop(room=room, max_rounds=target_rounds)
@@ -73,6 +120,7 @@ class RoomManager:
         async with room.lock:
             task = room.task
             room.running = False
+            room.stop_requested = True
             room.task = None
         if task is not None:
             task.cancel()
@@ -90,44 +138,6 @@ class RoomManager:
         )
         return message
 
-    async def update_room_setup(
-        self,
-        room_id: str,
-        *,
-        subject: str | None = None,
-        role_updates: list[tuple[str, RoleType, str]] | None = None,
-    ) -> Room:
-        room = self.get_room(room_id)
-        async with room.lock:
-            if room.running:
-                raise RuntimeError("Cannot update setup while room is running.")
-            if subject is not None:
-                room.subject = subject
-
-            if role_updates:
-                index = {agent.agent_id: agent for agent in room.agents}
-                for agent_id, role_type, character_profile in role_updates:
-                    target = index.get(agent_id)
-                    if target is None:
-                        raise ValueError(f"Unknown agent_id: {agent_id}")
-                    target.role_type = role_type
-                    target.character_profile = (
-                        "" if role_type == "facilitator" else character_profile.strip()
-                    )
-                    target.persona_prompt = build_persona_prompt(
-                        role_type=target.role_type,
-                        character_profile=target.character_profile,
-                    )
-
-                facilitator_count = sum(
-                    1 for agent in room.agents if agent.role_type == "facilitator"
-                )
-                if facilitator_count != 1:
-                    raise ValueError("Exactly one facilitator is required.")
-
-        await self._broadcast_snapshot(room)
-        return room
-
     async def register_ws(self, room_id: str, websocket: WebSocket) -> None:
         room = self.get_room(room_id)
         room.ws_connections.add(websocket)
@@ -142,8 +152,29 @@ class RoomManager:
 
     async def _run_room_loop(self, *, room: Room, max_rounds: int) -> None:
         rounds = 0
+        repetition_streak = 0
+        previous_norm = ""
+        end_reason = "max_rounds"
         try:
             while room.running and rounds < max_rounds:
+                room.current_act, act_goal = resolve_act(
+                    rounds_completed=rounds, max_rounds=max_rounds
+                )
+
+                if not room.topic_card_used and max_rounds >= 6 and rounds >= max_rounds // 2:
+                    topic_card = ChatMessage(
+                        role="user",
+                        speaker_id="お題カード",
+                        content=build_topic_card(room.subject, room.rng),
+                    )
+                    room.topic_card_used = True
+                    room.messages.append(topic_card)
+                    room.pending_priority_message = topic_card
+                    await self._broadcast(
+                        room,
+                        {"type": "message", "payload": self._serialize_message(topic_card)},
+                    )
+
                 speaker = choose_next_speaker(
                     agents=room.agents,
                     last_speaker_id=room.last_speaker_id,
@@ -159,6 +190,8 @@ class RoomManager:
                         display_name=speaker.display_name,
                         role_type=speaker.role_type,
                         subject=room.subject,
+                        act_name=room.current_act,
+                        act_goal=act_goal,
                         persona_prompt=speaker.persona_prompt,
                         history=history,
                         priority_message=priority_message,
@@ -178,6 +211,7 @@ class RoomManager:
                     )
                     if room.fail_streak >= self._settings.max_consecutive_failures:
                         room.running = False
+                        end_reason = "failures"
                         await self._broadcast(
                             room,
                             {
@@ -197,20 +231,61 @@ class RoomManager:
                 room.messages.append(message)
                 room.last_speaker_id = speaker.agent_id
                 rounds += 1
+                room.rounds_completed = rounds
                 await self._broadcast(
                     room, {"type": "message", "payload": self._serialize_message(message)}
                 )
+
+                normalized = normalize_message_text(content)
+                if normalized and previous_norm:
+                    if normalized == previous_norm:
+                        repetition_streak += 1
+                    elif (
+                        len(normalized) > 24
+                        and len(previous_norm) > 24
+                        and (normalized in previous_norm or previous_norm in normalized)
+                    ):
+                        repetition_streak += 1
+                    else:
+                        repetition_streak = 0
+                previous_norm = normalized
+
+                if rounds >= 4 and has_conclusion_signal(content):
+                    room.running = False
+                    end_reason = "conclusion"
+                    break
+
+                if rounds >= 6 and repetition_streak >= 2:
+                    room.running = False
+                    end_reason = "repetition"
+                    break
+
                 await asyncio.sleep(self._settings.loop_interval_seconds)
+
+            if room.stop_requested:
+                end_reason = "manual_stop"
+            elif rounds >= max_rounds and end_reason == "max_rounds":
+                end_reason = "max_rounds"
         finally:
+            room.end_reason = end_reason
+            if room.messages and not self._summary_already_exists(room):
+                summary = ChatMessage(
+                    role="agent",
+                    speaker_id="総括",
+                    content=self._build_final_summary(room),
+                )
+                room.messages.append(summary)
+                await self._broadcast(
+                    room, {"type": "message", "payload": self._serialize_message(summary)}
+                )
+
             room.running = False
             room.task = None
+            room.current_act = "終了"
             await self._broadcast_room_state(room)
 
     async def _send_room_snapshot(self, *, room: Room, websocket: WebSocket) -> None:
         await websocket.send_json(self._build_snapshot_event(room))
-
-    async def _broadcast_snapshot(self, room: Room) -> None:
-        await self._broadcast(room, self._build_snapshot_event(room))
 
     async def _broadcast_room_state(self, room: Room) -> None:
         await self._broadcast(
@@ -220,6 +295,9 @@ class RoomManager:
                 "payload": {
                     "room_id": room.room_id,
                     "running": room.running,
+                    "current_act": room.current_act,
+                    "rounds_completed": room.rounds_completed,
+                    "end_reason": room.end_reason,
                 },
             },
         )
@@ -244,6 +322,48 @@ class RoomManager:
         }
 
     @staticmethod
+    def _summary_already_exists(room: Room) -> bool:
+        if not room.messages:
+            return False
+        return room.messages[-1].speaker_id == "総括"
+
+    @staticmethod
+    def _build_final_summary(room: Room) -> str:
+        reason_map = {
+            "conclusion": "議論が結論に到達したため終了しました。",
+            "repetition": "論点が収束して反復が増えたため終了しました。",
+            "max_rounds": "ラウンド上限に到達したため終了しました。",
+            "manual_stop": "ユーザー操作で終了しました。",
+            "failures": "連続エラーにより終了しました。",
+            None: "会話が終了しました。",
+        }
+
+        agent_messages = [
+            message.content
+            for message in room.messages
+            if message.role == "agent" and message.speaker_id != "総括"
+        ]
+        last_meaningful = (
+            agent_messages[-1]
+            if agent_messages
+            else "お題の方向性は有望で、短期検証の価値があります。"
+        )
+        conclusion_text = last_meaningful.strip()
+        if len(conclusion_text) > 120:
+            conclusion_text = f"{conclusion_text[:117]}..."
+
+        next_step = (
+            f"「{room.subject}」について、今日の結論をもとに5分で試せる最小プロトタイプを1つ作り、"
+            "反応を確認する。"
+        )
+
+        return (
+            f"【最終まとめ】{reason_map.get(room.end_reason, reason_map[None])}\n"
+            f"今日の結論: {conclusion_text}\n"
+            f"次の一手: {next_step}"
+        )
+
+    @staticmethod
     def _build_snapshot_event(room: Room) -> dict[str, object]:
         return {
             "type": "room_snapshot",
@@ -251,6 +371,9 @@ class RoomManager:
                 "room_id": room.room_id,
                 "subject": room.subject,
                 "running": room.running,
+                "current_act": room.current_act,
+                "rounds_completed": room.rounds_completed,
+                "end_reason": room.end_reason,
                 "agents": [
                     {
                         "agent_id": agent.agent_id,
@@ -258,7 +381,6 @@ class RoomManager:
                         "display_name": agent.display_name,
                         "role_type": agent.role_type,
                         "character_profile": agent.character_profile,
-                        "persona_prompt": agent.persona_prompt,
                     }
                     for agent in room.agents
                 ],

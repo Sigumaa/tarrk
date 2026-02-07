@@ -23,7 +23,6 @@ class AgentResponse(BaseModel):
     display_name: str
     role_type: RoleType
     character_profile: str
-    persona_prompt: str
 
 
 class RoomResponse(BaseModel):
@@ -42,17 +41,6 @@ class StatusResponse(BaseModel):
 
 class UserMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=1000)
-
-
-class UpdateAgentRequest(BaseModel):
-    agent_id: str = Field(min_length=1, max_length=50)
-    role_type: RoleType
-    character_profile: str = Field(default="", max_length=1000)
-
-
-class UpdateRoomSetupRequest(BaseModel):
-    subject: str | None = Field(default=None, min_length=1, max_length=500)
-    agents: list[UpdateAgentRequest] | None = Field(default=None, max_length=8)
 
 
 def get_room_manager(request: Request) -> RoomManager:
@@ -74,7 +62,6 @@ def build_room_response(room_id: str, manager: RoomManager) -> RoomResponse:
                 display_name=agent.display_name,
                 role_type=agent.role_type,
                 character_profile=agent.character_profile,
-                persona_prompt=agent.persona_prompt,
             )
             for agent in room.agents
         ],
@@ -85,34 +72,6 @@ def build_room_response(room_id: str, manager: RoomManager) -> RoomResponse:
 def create_room(payload: CreateRoomRequest, manager: RoomManagerDep) -> RoomResponse:
     room = manager.create_room(subject=payload.subject, models=payload.models, seed=payload.seed)
     return build_room_response(room.room_id, manager)
-
-
-@router.put("/room/{room_id}/setup", response_model=RoomResponse)
-async def update_room_setup(
-    room_id: str,
-    payload: UpdateRoomSetupRequest,
-    manager: RoomManagerDep,
-) -> RoomResponse:
-    updates: list[tuple[str, RoleType, str]] | None = None
-    if payload.agents is not None:
-        updates = [
-            (item.agent_id, item.role_type, item.character_profile) for item in payload.agents
-        ]
-    try:
-        await manager.update_room_setup(
-            room_id=room_id,
-            subject=payload.subject,
-            role_updates=updates,
-        )
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found."
-        ) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return build_room_response(room_id, manager)
 
 
 @router.post("/room/{room_id}/start", response_model=StatusResponse)

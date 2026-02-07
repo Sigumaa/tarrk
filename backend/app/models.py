@@ -46,5 +46,10 @@ class Room:
     last_speaker_id: str | None = None
     pending_priority_message: ChatMessage | None = None
     fail_streak: int = 0
+    rounds_completed: int = 0
+    current_act: str = "導入"
+    topic_card_used: bool = False
+    stop_requested: bool = False
+    end_reason: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     ws_connections: set[WebSocket] = field(default_factory=set)

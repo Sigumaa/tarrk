@@ -7,7 +7,7 @@ import pytest
 
 from app.config import Settings
 from app.models import AgentSpec, ChatMessage
-from app.orchestrator import RoomManager, choose_next_speaker, trim_history
+from app.orchestrator import RoomManager, choose_next_speaker, resolve_act, trim_history
 
 
 class StaticLLM:
@@ -18,11 +18,53 @@ class StaticLLM:
         display_name: str,
         role_type: str,
         subject: str,
+        act_name: str,
+        act_goal: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
     ) -> str:
-        return f"[{display_name}] {subject}"
+        return f"[{act_name}] {subject}"
+
+
+class ConcludingLLM:
+    def __init__(self) -> None:
+        self._count = 0
+
+    async def generate_reply(
+        self,
+        *,
+        model: str,
+        display_name: str,
+        role_type: str,
+        subject: str,
+        act_name: str,
+        act_goal: str,
+        persona_prompt: str,
+        history: list[ChatMessage],
+        priority_message: ChatMessage | None,
+    ) -> str:
+        self._count += 1
+        if self._count >= 4:
+            return "結論として、この案を採用して進めるべきです。"
+        return "まず前提を整理します。"
+
+
+class RepeatingLLM:
+    async def generate_reply(
+        self,
+        *,
+        model: str,
+        display_name: str,
+        role_type: str,
+        subject: str,
+        act_name: str,
+        act_goal: str,
+        persona_prompt: str,
+        history: list[ChatMessage],
+        priority_message: ChatMessage | None,
+    ) -> str:
+        return "同じ主張を繰り返します。同じ主張を繰り返します。"
 
 
 class FailingLLM:
@@ -33,6 +75,8 @@ class FailingLLM:
         display_name: str,
         role_type: str,
         subject: str,
+        act_name: str,
+        act_goal: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
@@ -42,7 +86,7 @@ class FailingLLM:
 
 def _build_settings(
     *,
-    default_max_rounds: int = 3,
+    default_max_rounds: int = 8,
     history_limit: int = 5,
     max_consecutive_failures: int = 2,
     loop_interval_seconds: float = 0.0,
@@ -85,18 +129,53 @@ def test_trim_history_respects_limit() -> None:
     assert [item.content for item in trimmed] == ["3", "4", "5"]
 
 
+def test_resolve_act_changes_with_progress() -> None:
+    assert resolve_act(0, 8)[0] == "導入"
+    assert resolve_act(3, 8)[0] == "衝突"
+    assert resolve_act(5, 8)[0] == "具体化"
+    assert resolve_act(7, 8)[0] == "締め"
+
+
 @pytest.mark.asyncio
-async def test_room_loop_generates_messages_with_display_name() -> None:
-    manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=2))
+async def test_room_loop_finishes_with_summary_on_max_rounds() -> None:
+    manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=6))
     room = manager.create_room(subject="ピザ論争", models=["m1", "m2"], seed=1)
 
     await manager.start_room(room.room_id)
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.06)
 
     assert room.running is False
-    agent_messages = [message for message in room.messages if message.role == "agent"]
-    assert len(agent_messages) == 2
-    assert all(message.speaker_id in {"m1", "m2"} for message in agent_messages)
+    assert room.end_reason == "max_rounds"
+    assert any(message.speaker_id == "総括" for message in room.messages)
+    assert any("今日の結論" in message.content for message in room.messages)
+
+
+@pytest.mark.asyncio
+async def test_room_stops_on_conclusion_signal() -> None:
+    manager = RoomManager(
+        llm_client=ConcludingLLM(), settings=_build_settings(default_max_rounds=20)
+    )
+    room = manager.create_room(subject="新機能検討", models=["m1", "m2"], seed=2)
+
+    await manager.start_room(room.room_id)
+    await asyncio.sleep(0.06)
+
+    assert room.running is False
+    assert room.end_reason == "conclusion"
+
+
+@pytest.mark.asyncio
+async def test_room_stops_on_repetition() -> None:
+    manager = RoomManager(
+        llm_client=RepeatingLLM(), settings=_build_settings(default_max_rounds=20)
+    )
+    room = manager.create_room(subject="反復テスト", models=["m1", "m2"], seed=3)
+
+    await manager.start_room(room.room_id)
+    await asyncio.sleep(0.06)
+
+    assert room.running is False
+    assert room.end_reason == "repetition"
 
 
 @pytest.mark.asyncio
@@ -105,41 +184,11 @@ async def test_room_stops_after_consecutive_failures() -> None:
         llm_client=FailingLLM(),
         settings=_build_settings(max_consecutive_failures=2),
     )
-    room = manager.create_room(subject="fail", models=["m1"], seed=2)
+    room = manager.create_room(subject="fail", models=["m1"], seed=4)
 
     await manager.start_room(room.room_id, max_rounds=10)
     await asyncio.sleep(0.05)
 
     assert room.running is False
     assert room.fail_streak >= 2
-
-
-@pytest.mark.asyncio
-async def test_update_room_setup_requires_stopped_room() -> None:
-    manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=100))
-    room = manager.create_room(subject="topic", models=["m1", "m2"], seed=1)
-
-    async with room.lock:
-        room.running = True
-
-    with pytest.raises(RuntimeError):
-        await manager.update_room_setup(room.room_id, subject="updated")
-
-
-@pytest.mark.asyncio
-async def test_update_room_setup_updates_roles_and_subject() -> None:
-    manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings())
-    room = manager.create_room(subject="初期お題", models=["m1", "m2"], seed=3)
-
-    await manager.update_room_setup(
-        room.room_id,
-        subject="更新お題",
-        role_updates=[
-            (room.agents[0].agent_id, "character", "皮肉屋の論客"),
-            (room.agents[1].agent_id, "facilitator", ""),
-        ],
-    )
-
-    assert room.subject == "更新お題"
-    assert room.agents[0].role_type == "character"
-    assert room.agents[1].role_type == "facilitator"
+    assert room.end_reason == "failures"

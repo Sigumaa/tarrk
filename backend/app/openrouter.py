@@ -15,6 +15,8 @@ class LLMClient(Protocol):
         display_name: str,
         role_type: RoleType,
         subject: str,
+        act_name: str,
+        act_goal: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
@@ -42,6 +44,8 @@ class OpenRouterClient:
         display_name: str,
         role_type: RoleType,
         subject: str,
+        act_name: str,
+        act_goal: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
@@ -53,6 +57,8 @@ class OpenRouterClient:
             display_name=display_name,
             role_type=role_type,
             subject=subject,
+            act_name=act_name,
+            act_goal=act_goal,
             persona_prompt=persona_prompt,
         )
         payload = {
@@ -125,6 +131,8 @@ class OpenRouterClient:
         display_name: str,
         role_type: RoleType,
         subject: str,
+        act_name: str,
+        act_goal: str,
         persona_prompt: str,
     ) -> str:
         normalized_subject = subject.strip() or "与えられたお題"
@@ -135,6 +143,8 @@ class OpenRouterClient:
             f"あなたの表示名: {display_name}\n"
             f"あなたの役割: {role_text}\n"
             f"議論するお題: {normalized_subject}\n\n"
+            f"現在の進行幕: {act_name}\n"
+            f"この幕の狙い: {act_goal}\n\n"
             "共通ルール:\n"
             "- 1ターンは2〜4文\n"
             "- 直前の発言を受けてから自分の意見を述べる\n"

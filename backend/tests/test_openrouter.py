@@ -11,10 +11,13 @@ def test_build_system_prompt_includes_subject_and_role() -> None:
         display_name="anthropic/claude-sonnet-4.5",
         role_type="facilitator",
         subject="面白い週末ハックの案出し",
+        act_name="導入",
+        act_goal="お題の前提をそろえる",
         persona_prompt="司会として論点を整理してください。",
     )
     assert "必ず日本語で話してください" in prompt
     assert "議論するお題: 面白い週末ハックの案出し" in prompt
+    assert "現在の進行幕: 導入" in prompt
     assert "あなたの役割: ファシリテーター" in prompt
 
 

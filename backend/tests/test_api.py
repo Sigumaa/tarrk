@@ -18,11 +18,13 @@ class StaticLLM:
         display_name: str,
         role_type: str,
         subject: str,
+        act_name: str,
+        act_goal: str,
         persona_prompt: str,
         history: list[ChatMessage],
         priority_message: ChatMessage | None,
     ) -> str:
-        return f"reply from {model}"
+        return f"[{act_name}] reply from {model}"
 
 
 def build_client() -> TestClient:
@@ -51,27 +53,7 @@ def test_room_api_lifecycle() -> None:
     room_id = body["room_id"]
     assert body["subject"] == "favorite snacks"
     assert body["agents"][0]["display_name"] == "m1"
-
-    update_response = client.put(
-        f"/api/room/{room_id}/setup",
-        json={
-            "subject": "updated subject",
-            "agents": [
-                {
-                    "agent_id": body["agents"][0]["agent_id"],
-                    "role_type": "facilitator",
-                    "character_profile": "",
-                },
-                {
-                    "agent_id": body["agents"][1]["agent_id"],
-                    "role_type": "character",
-                    "character_profile": "毒舌な批評家",
-                },
-            ],
-        },
-    )
-    assert update_response.status_code == 200
-    assert update_response.json()["subject"] == "updated subject"
+    assert body["agents"][0]["role_type"] == "facilitator"
 
     start_response = client.post(f"/api/room/{room_id}/start", json={"max_rounds": 1})
     assert start_response.status_code == 200
