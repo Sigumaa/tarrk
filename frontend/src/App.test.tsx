@@ -438,7 +438,7 @@ describe('App', () => {
         },
       })
     })
-    expect(await screen.findByText('状態: 一時停止中')).toBeInTheDocument()
+    expect(await screen.findByText('一時停止中')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '再開' }))
     expect(mockedFetch).toHaveBeenCalledWith(
@@ -568,8 +568,50 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('button', { name: 'サイドバーを隠す' }))
     expect(layout?.className).toContain('sidebar-collapsed')
 
-    await userEvent.click(screen.getByRole('button', { name: 'ピン' }))
+    const messagePinButton = screen
+      .getAllByRole('button', { name: 'ピン' })
+      .find((button) => button.className.includes('pin-button'))
+    expect(messagePinButton).toBeDefined()
+    await userEvent.click(messagePinButton!)
     const pinnedTexts = await screen.findAllByText('この主張は価値基準の定義を先に置くべきです。')
     expect(pinnedTexts.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('can focus sidebar panels to logs only', async () => {
+    const mockedFetch = vi.mocked(fetch)
+    mockedFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          room_id: 'room-7',
+          subject: '表示切替',
+          conversation_mode: 'philosophy_debate',
+          global_instruction: '',
+          turn_interval_seconds: 0.5,
+          agents: [
+            {
+              agent_id: 'agent-1',
+              model: 'm1',
+              display_name: 'm1',
+              role_type: 'facilitator',
+              character_profile: '',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+
+    render(<App />)
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
+      '表示切替',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
+    expect(await screen.findByText('Room: room-7')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'ログ' }))
+    expect(screen.getByText('アクセスログ')).toBeInTheDocument()
+    expect(screen.queryByText('参加モデル')).not.toBeInTheDocument()
+    expect(screen.queryByText('ピン留め')).not.toBeInTheDocument()
   })
 })

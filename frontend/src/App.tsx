@@ -6,6 +6,7 @@ type MessageRole = 'user' | 'agent'
 type RoleType = 'facilitator' | 'character'
 type ConversationMode = 'philosophy_debate' | 'devils_advocate' | 'consensus_lab'
 type DensityMode = 'standard' | 'compact'
+type SidebarFocus = 'all' | 'models' | 'pins' | 'logs'
 
 type ChatMessage = {
   role: MessageRole
@@ -198,6 +199,7 @@ function App() {
 
   const [densityMode, setDensityMode] = useState<DensityMode>('standard')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarFocus, setSidebarFocus] = useState<SidebarFocus>('all')
 
   const socketRef = useRef<WebSocket | null>(null)
   const messageListRef = useRef<HTMLUListElement | null>(null)
@@ -396,6 +398,7 @@ function App() {
       setActiveRequestModel(null)
       setLastAccessResult(null)
       setSidebarCollapsed(false)
+      setSidebarFocus('all')
       setStatus(`部屋 ${payload.room_id} を作成しました。`)
       connectWebSocket(payload.room_id)
     } catch (error) {
@@ -552,6 +555,7 @@ function App() {
     setPaused(false)
     setActiveRequestModel(null)
     setLastAccessResult(null)
+    setSidebarFocus('all')
     setStatus('新しい部屋を作成してください。')
   }
 
@@ -652,22 +656,39 @@ function App() {
               <div className="toolbar-main">
                 <strong>Room: {room.room_id}</strong>
                 <p className="subject-line">お題: {room.subject}</p>
-                <div className="runtime-strip">
-                  <span className={`runtime-pill runtime-state-${running ? (paused ? 'paused' : 'running') : 'stopped'}`}>
-                    状態: {runStateLabel(running, paused)}
-                  </span>
-                  <span className="runtime-pill">
-                    {activeRequestModel ? `アクセス中: ${activeRequestModel}` : 'アクセス待機中'}
-                  </span>
-                  <span
-                    className={`runtime-pill ${
-                      lastAccessResult?.status === 'failed' ? 'runtime-last-failed' : 'runtime-last-completed'
+                <div className="runtime-grid">
+                  <div
+                    className={`runtime-card runtime-card-state-${running ? (paused ? 'paused' : 'running') : 'stopped'}`}
+                  >
+                    <p className="runtime-label">状態</p>
+                    <p
+                      className={`runtime-value runtime-state-${running ? (paused ? 'paused' : 'running') : 'stopped'}`}
+                    >
+                      {runStateLabel(running, paused)}
+                    </p>
+                  </div>
+                  <div className="runtime-card">
+                    <p className="runtime-label">アクセス状況</p>
+                    <p className="runtime-value">
+                      {activeRequestModel ? `アクセス中: ${activeRequestModel}` : 'アクセス待機中'}
+                    </p>
+                  </div>
+                  <div
+                    className={`runtime-card runtime-card-last-${
+                      lastAccessResult?.status === 'failed' ? 'failed' : 'completed'
                     }`}
                   >
-                    {lastAccessResult
-                      ? `直近: ${lastAccessResult.status === 'failed' ? '失敗' : '成功'} / ${lastAccessResult.displayName}`
-                      : '直近: まだ応答なし'}
-                  </span>
+                    <p className="runtime-label">直近結果</p>
+                    <p
+                      className={`runtime-value ${
+                        lastAccessResult?.status === 'failed' ? 'runtime-last-failed' : 'runtime-last-completed'
+                      }`}
+                    >
+                      {lastAccessResult
+                        ? `${lastAccessResult.status === 'failed' ? '失敗' : '成功'} / ${lastAccessResult.displayName}`
+                        : 'まだ応答なし'}
+                    </p>
+                  </div>
                 </div>
               </div>
               <div className="toolbar-badges">
@@ -803,69 +824,106 @@ function App() {
               </button>
             </section>
 
-            <section className="pins-panel">
-              <h3>ピン留め</h3>
-              <ul className="pins-list">
-                {pinnedMessages.length === 0 ? (
-                  <li className="log-empty">ピン留めはまだありません。</li>
-                ) : (
-                  pinnedMessages.map((item) => (
-                    <li key={`pin-${item.key}`} className="pin-item">
-                      <p className="pin-speaker">{item.message.speaker_id}</p>
-                      <p className="pin-content">{item.message.content}</p>
-                    </li>
-                  ))
-                )}
-              </ul>
+            <section className="sidebar-focus" aria-label="サイドバー表示">
+              <button
+                type="button"
+                className={sidebarFocus === 'all' ? 'active' : ''}
+                onClick={() => setSidebarFocus('all')}
+              >
+                すべて
+              </button>
+              <button
+                type="button"
+                className={sidebarFocus === 'models' ? 'active' : ''}
+                onClick={() => setSidebarFocus('models')}
+              >
+                モデル
+              </button>
+              <button
+                type="button"
+                className={sidebarFocus === 'pins' ? 'active' : ''}
+                onClick={() => setSidebarFocus('pins')}
+              >
+                ピン
+              </button>
+              <button
+                type="button"
+                className={sidebarFocus === 'logs' ? 'active' : ''}
+                onClick={() => setSidebarFocus('logs')}
+              >
+                ログ
+              </button>
             </section>
 
-            <section className="members-section">
-              <h3>参加モデル</h3>
-              <p className="members-note">
-                役割は自動設定です（ファシリテーター1名 + お題依存キャラクター）。
-              </p>
-              <ul className="members-list">
-                {room.agents.map((agent) => (
-                  <li key={agent.agent_id} className="member-item" style={accentStyle(agent.display_name)}>
-                    <div className="member-head">
-                      <span className="member-dot" aria-hidden="true" />
-                      <p className="member-name">{agent.display_name}</p>
-                    </div>
-                    <p className="member-role">
-                      {agent.role_type === 'facilitator' ? 'ファシリテーター' : 'キャラクター'}
-                    </p>
-                    {agent.role_type === 'character' && (
-                      <p className="member-character">{agent.character_profile}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
+            {(sidebarFocus === 'all' || sidebarFocus === 'pins') && (
+              <section className="pins-panel">
+                <h3>ピン留め</h3>
+                <ul className="pins-list">
+                  {pinnedMessages.length === 0 ? (
+                    <li className="log-empty">ピン留めはまだありません。</li>
+                  ) : (
+                    pinnedMessages.map((item) => (
+                      <li key={`pin-${item.key}`} className="pin-item">
+                        <p className="pin-speaker">{item.message.speaker_id}</p>
+                        <p className="pin-content">{item.message.content}</p>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </section>
+            )}
 
-            <section className="logs-panel">
-              <h3>アクセスログ</h3>
-              <ul className="logs-list">
-                {generationLogs.length === 0 ? (
-                  <li className="log-empty">ログはまだありません。</li>
-                ) : (
-                  generationLogs.map((log, index) => (
-                    <li
-                      key={`${log.timestamp}-${index}`}
-                      className={`log-item log-${log.status}`}
-                      style={accentStyle(log.display_name)}
-                    >
-                      <p className="log-main">
-                        R{log.round_index} {log.status} {log.display_name}
+            {(sidebarFocus === 'all' || sidebarFocus === 'models') && (
+              <section className="members-section">
+                <h3>参加モデル</h3>
+                <p className="members-note">
+                  役割は自動設定です（ファシリテーター1名 + お題依存キャラクター）。
+                </p>
+                <ul className="members-list">
+                  {room.agents.map((agent) => (
+                    <li key={agent.agent_id} className="member-item" style={accentStyle(agent.display_name)}>
+                      <div className="member-head">
+                        <span className="member-dot" aria-hidden="true" />
+                        <p className="member-name">{agent.display_name}</p>
+                      </div>
+                      <p className="member-role">
+                        {agent.role_type === 'facilitator' ? 'ファシリテーター' : 'キャラクター'}
                       </p>
-                      <p className="log-sub">
-                        幕: {log.act}
-                        {log.detail ? ` / ${log.detail}` : ''}
-                      </p>
+                      {agent.role_type === 'character' && (
+                        <p className="member-character">{agent.character_profile}</p>
+                      )}
                     </li>
-                  ))
-                )}
-              </ul>
-            </section>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {(sidebarFocus === 'all' || sidebarFocus === 'logs') && (
+              <section className="logs-panel">
+                <h3>アクセスログ</h3>
+                <ul className="logs-list">
+                  {generationLogs.length === 0 ? (
+                    <li className="log-empty">ログはまだありません。</li>
+                  ) : (
+                    generationLogs.map((log, index) => (
+                      <li
+                        key={`${log.timestamp}-${index}`}
+                        className={`log-item log-${log.status}`}
+                        style={accentStyle(log.display_name)}
+                      >
+                        <p className="log-main">
+                          R{log.round_index} {log.status} {log.display_name}
+                        </p>
+                        <p className="log-sub">
+                          幕: {log.act}
+                          {log.detail ? ` / ${log.detail}` : ''}
+                        </p>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </section>
+            )}
           </aside>
         </section>
       )}

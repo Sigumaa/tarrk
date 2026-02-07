@@ -193,51 +193,74 @@ textarea {
   white-space: nowrap;
 }
 
-.runtime-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.28rem;
+.runtime-grid {
+  display: grid;
+  gap: 0.32rem;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  margin-top: 0.32rem;
 }
 
-.runtime-pill {
+.runtime-card {
   background: #f8fafc;
   border: 1px solid #dbe2eb;
-  border-radius: 999px;
-  color: #334155;
-  font-size: 0.71rem;
+  border-radius: 0.55rem;
+  min-width: 0;
+  padding: 0.28rem 0.42rem;
+}
+
+.runtime-label {
+  color: #64748b;
+  font-size: 0.68rem;
   font-weight: 700;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 0.16rem 0.46rem;
-  text-overflow: unset;
-  white-space: normal;
+  margin: 0;
+}
+
+.runtime-value {
+  color: #1f2937;
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin: 0.12rem 0 0;
   overflow-wrap: anywhere;
 }
 
 .runtime-state-running {
-  border-color: #86efac;
   color: #166534;
+}
+
+.runtime-card-state-running {
+  border-color: #86efac;
 }
 
 .runtime-state-paused {
-  border-color: #fcd34d;
   color: #92400e;
 }
 
+.runtime-card-state-paused {
+  border-color: #fcd34d;
+}
+
 .runtime-state-stopped {
-  border-color: #d1d5db;
   color: #475569;
 }
 
+.runtime-card-state-stopped {
+  border-color: #d1d5db;
+}
+
 .runtime-last-failed {
-  border-color: #fca5a5;
   color: #b91c1c;
 }
 
+.runtime-card-last-failed {
+  border-color: #fca5a5;
+}
+
 .runtime-last-completed {
-  border-color: #86efac;
   color: #166534;
+}
+
+.runtime-card-last-completed {
+  border-color: #86efac;
 }
 
 .toolbar-badges {
@@ -431,7 +454,7 @@ button:disabled {
 }
 
 .config-panel h2 {
-  font-size: 0.95rem;
+  font-size: 0.98rem;
   margin: 0;
 }
 
@@ -448,7 +471,7 @@ button:disabled {
   border-radius: 0.52rem;
   display: flex;
   flex-direction: column;
-  max-height: 23vh;
+  max-height: 27vh;
   min-height: 0;
   padding: 0.45rem;
 }
@@ -492,8 +515,26 @@ button:disabled {
 }
 
 .members-panel h3 {
-  font-size: 0.84rem;
+  font-size: 0.9rem;
   margin: 0;
+}
+
+.sidebar-focus {
+  display: grid;
+  gap: 0.28rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sidebar-focus button {
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 0.28rem 0.34rem;
+}
+
+.sidebar-focus button.active {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #ffffff;
 }
 
 .members-section {
@@ -507,7 +548,7 @@ button:disabled {
 
 .members-note {
   color: #64748b;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   margin: 0.18rem 0 0.26rem;
 }
 
@@ -545,7 +586,7 @@ button:disabled {
 }
 
 .member-name {
-  font-size: 0.81rem;
+  font-size: 0.86rem;
   font-weight: 700;
   margin: 0;
   overflow-wrap: anywhere;
@@ -553,13 +594,14 @@ button:disabled {
 
 .member-role {
   color: #1e293b;
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   margin: 0.14rem 0 0.22rem;
 }
 
 .member-character {
   color: #334155;
-  font-size: 0.74rem;
+  font-size: 0.81rem;
+  line-height: 1.38;
   margin: 0;
 }
 
@@ -598,14 +640,15 @@ button:disabled {
 
 .log-main {
   color: #0f172a;
-  font-size: 0.75rem;
+  font-size: 0.81rem;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 
 .log-sub {
   color: #64748b;
-  font-size: 0.71rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
   margin-top: 0.11rem;
 }
 
@@ -664,6 +707,10 @@ button:disabled {
   .members-panel {
     display: flex;
     flex-direction: column;
+  }
+
+  .sidebar-focus {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .pins-panel {
