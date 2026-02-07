@@ -17,9 +17,14 @@
 
 ```bash
 cd backend
-export OPENROUTER_API_KEY=your_key
 uv sync
 uv run uvicorn app.main:app --reload --port 8000
+```
+
+`.env` で環境変数を管理できます（`backend/.env` またはリポジトリ直下 `.env`）。
+
+```bash
+cp .env.example .env
 ```
 
 検証:
@@ -42,7 +47,8 @@ npm run dev
 必要なら API URL を変更:
 
 ```bash
-export VITE_API_BASE_URL=http://localhost:8000
+# リポジトリ直下 .env
+VITE_API_BASE_URL=http://localhost:8000
 ```
 
 検証:
@@ -59,4 +65,3 @@ npm run build
 2. `開始` を押して LLM 同士の会話を開始
 3. 入力欄から割り込みメッセージを投稿
 4. `停止` または `リセット` で終了
-

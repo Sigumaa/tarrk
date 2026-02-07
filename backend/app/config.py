@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def resolve_env_files() -> tuple[str, str]:
+    backend_dir = Path(__file__).resolve().parents[1]
+    repo_root = backend_dir.parent
+    return (str(backend_dir / ".env"), str(repo_root / ".env"))
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=resolve_env_files(),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     openrouter_api_key: str = Field(default="")
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
