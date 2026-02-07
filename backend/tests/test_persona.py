@@ -11,10 +11,15 @@ def test_build_display_names_handles_duplicates() -> None:
 
 
 def test_build_persona_prompt_for_roles() -> None:
-    facilitator = build_persona_prompt(role_type="facilitator", character_profile="")
+    facilitator = build_persona_prompt(
+        role_type="facilitator",
+        character_profile="",
+        subject="意識は計算可能か",
+    )
     character = build_persona_prompt(
         role_type="character",
         character_profile="勢いのあるクリエイター",
+        subject="意識は計算可能か",
     )
     assert "司会" in facilitator
     assert "キャラクター設定" in character
@@ -22,8 +27,9 @@ def test_build_persona_prompt_for_roles() -> None:
 
 def test_generate_personas_assigns_first_as_facilitator() -> None:
     models = ["m1", "m2", "m3"]
-    personas = generate_personas(models=models, rng=Random(10))
+    personas = generate_personas(models=models, subject="自由意志とは何か", rng=Random(10))
     assert len(personas) == 3
     assert personas[0].role_type == "facilitator"
+    assert "自由意志" in personas[1].character_profile
     assert all(persona.display_name for persona in personas)
     assert all(persona.persona_prompt for persona in personas)

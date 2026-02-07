@@ -100,6 +100,17 @@ async def stop_room(room_id: str, manager: RoomManagerDep) -> StatusResponse:
     return StatusResponse(status="stopped")
 
 
+@router.post("/room/{room_id}/conclude", response_model=StatusResponse)
+async def conclude_room(room_id: str, manager: RoomManagerDep) -> StatusResponse:
+    try:
+        await manager.stop_room(room_id=room_id, reason="user_concluded")
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found."
+        ) from exc
+    return StatusResponse(status="concluded")
+
+
 @router.post("/room/{room_id}/user-message", response_model=StatusResponse)
 async def add_user_message(
     room_id: str,

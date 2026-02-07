@@ -20,15 +20,6 @@ ACTS: tuple[tuple[str, str], ...] = (
     ("締め", "合意点と未解決点を整理して着地させる。"),
 )
 
-CONCLUSION_KEYWORDS: tuple[str, ...] = (
-    "結論",
-    "まとめると",
-    "最終的に",
-    "採用",
-    "合意",
-    "これでいく",
-)
-
 
 def choose_next_speaker(
     *,
@@ -57,15 +48,6 @@ def resolve_act(rounds_completed: int, max_rounds: int) -> tuple[str, str]:
     return ACTS[index]
 
 
-def has_conclusion_signal(text: str) -> bool:
-    return any(keyword in text for keyword in CONCLUSION_KEYWORDS)
-
-
-def normalize_message_text(text: str) -> str:
-    translation_table = str.maketrans("", "", " \n\t。、，,.!！？!?「」『』（）()")
-    return text.lower().translate(translation_table)
-
-
 def build_topic_card(subject: str, rng: Random) -> str:
     cards = (
         f"お題カード: 「{subject}」を30秒デモにするなら、最初に見せる一手は何？",
@@ -87,7 +69,7 @@ class RoomManager:
             raise ValueError("At least one model is required.")
         room_id = uuid4().hex[:8]
         rng = Random(seed)
-        agents = generate_personas(models=models, rng=rng)
+        agents = generate_personas(models=models, subject=subject, rng=rng)
         room = Room(room_id=room_id, subject=subject, agents=agents, rng=rng)
         self._rooms[room_id] = room
         return room
@@ -105,6 +87,7 @@ class RoomManager:
                 return
             room.running = True
             room.stop_requested = False
+            room.stop_reason = None
             room.fail_streak = 0
             room.rounds_completed = 0
             room.current_act = ACTS[0][0]
@@ -116,12 +99,13 @@ class RoomManager:
             )
         await self._broadcast_room_state(room)
 
-    async def stop_room(self, room_id: str) -> None:
+    async def stop_room(self, room_id: str, *, reason: str = "manual_stop") -> None:
         room = self.get_room(room_id)
         async with room.lock:
             task = room.task
             room.running = False
             room.stop_requested = True
+            room.stop_reason = reason
             room.task = None
         if task is not None:
             task.cancel()
@@ -153,8 +137,6 @@ class RoomManager:
 
     async def _run_room_loop(self, *, room: Room, max_rounds: int) -> None:
         rounds = 0
-        repetition_streak = 0
-        previous_norm = ""
         end_reason = "max_rounds"
         try:
             while room.running and rounds < max_rounds:
@@ -262,42 +244,15 @@ class RoomManager:
                     room, {"type": "message", "payload": self._serialize_message(message)}
                 )
 
-                normalized = normalize_message_text(content)
-                if normalized and previous_norm:
-                    if normalized == previous_norm:
-                        repetition_streak += 1
-                    elif (
-                        len(normalized) > 24
-                        and len(previous_norm) > 24
-                        and (normalized in previous_norm or previous_norm in normalized)
-                    ):
-                        repetition_streak += 1
-                    else:
-                        repetition_streak = 0
-                previous_norm = normalized
-
-                if rounds >= self._settings.min_rounds_before_conclusion and has_conclusion_signal(
-                    content
-                ):
-                    room.running = False
-                    end_reason = "conclusion"
-                    break
-
-                if (
-                    rounds >= self._settings.min_rounds_before_repetition_stop
-                    and repetition_streak >= 2
-                ):
-                    room.running = False
-                    end_reason = "repetition"
-                    break
-
                 await asyncio.sleep(self._settings.loop_interval_seconds)
 
             if room.stop_requested:
-                end_reason = "manual_stop"
+                end_reason = room.stop_reason or "manual_stop"
             elif rounds >= max_rounds and end_reason == "max_rounds":
                 end_reason = "max_rounds"
         finally:
+            if room.stop_requested:
+                end_reason = room.stop_reason or "manual_stop"
             room.end_reason = end_reason
             if room.messages and not self._summary_already_exists(room):
                 summary = ChatMessage(
@@ -400,10 +355,9 @@ class RoomManager:
     @staticmethod
     def _build_final_summary(room: Room) -> str:
         reason_map = {
-            "conclusion": "議論が結論に到達したため終了しました。",
-            "repetition": "論点が収束して反復が増えたため終了しました。",
             "max_rounds": "ラウンド上限に到達したため終了しました。",
             "manual_stop": "ユーザー操作で終了しました。",
+            "user_concluded": "ユーザーが「発展余地が少ない」と判断して終了しました。",
             "failures": "連続エラーにより終了しました。",
             None: "会話が終了しました。",
         }

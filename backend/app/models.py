@@ -61,6 +61,7 @@ class Room:
     current_act: str = "導入"
     topic_card_used: bool = False
     stop_requested: bool = False
+    stop_reason: str | None = None
     end_reason: str | None = None
     generation_logs: list[GenerationLog] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)

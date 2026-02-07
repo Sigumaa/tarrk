@@ -68,12 +68,15 @@ def test_room_api_lifecycle() -> None:
     assert user_response.status_code == 200
     assert user_response.json() == {"status": "accepted"}
 
-    stop_response = client.post(f"/api/room/{room_id}/stop")
-    assert stop_response.status_code == 200
-    assert stop_response.json() == {"status": "stopped"}
+    conclude_response = client.post(f"/api/room/{room_id}/conclude")
+    assert conclude_response.status_code == 200
+    assert conclude_response.json() == {"status": "concluded"}
 
 
 def test_room_api_returns_404_for_unknown_room() -> None:
     client = build_client()
     response = client.post("/api/room/missing-room/start", json={})
     assert response.status_code == 404
+
+    conclude_response = client.post("/api/room/missing-room/conclude")
+    assert conclude_response.status_code == 404
