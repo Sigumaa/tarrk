@@ -25,6 +25,17 @@ class ChatMessage:
 
 
 @dataclass(slots=True)
+class GenerationLog:
+    round_index: int
+    model: str
+    display_name: str
+    act: str
+    status: Literal["requesting", "completed", "failed"]
+    detail: str = ""
+    timestamp: str = field(default_factory=utc_now_iso)
+
+
+@dataclass(slots=True)
 class AgentSpec:
     agent_id: str
     model: str
@@ -51,5 +62,6 @@ class Room:
     topic_card_used: bool = False
     stop_requested: bool = False
     end_reason: str | None = None
+    generation_logs: list[GenerationLog] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     ws_connections: set[WebSocket] = field(default_factory=set)

@@ -89,6 +89,8 @@ def _build_settings(
     default_max_rounds: int = 8,
     history_limit: int = 5,
     max_consecutive_failures: int = 2,
+    min_rounds_before_conclusion: int = 12,
+    min_rounds_before_repetition_stop: int = 18,
     loop_interval_seconds: float = 0.0,
 ) -> Settings:
     return Settings(
@@ -96,6 +98,8 @@ def _build_settings(
         default_max_rounds=default_max_rounds,
         history_limit=history_limit,
         max_consecutive_failures=max_consecutive_failures,
+        min_rounds_before_conclusion=min_rounds_before_conclusion,
+        min_rounds_before_repetition_stop=min_rounds_before_repetition_stop,
         loop_interval_seconds=loop_interval_seconds,
     )
 
@@ -153,7 +157,12 @@ async def test_room_loop_finishes_with_summary_on_max_rounds() -> None:
 @pytest.mark.asyncio
 async def test_room_stops_on_conclusion_signal() -> None:
     manager = RoomManager(
-        llm_client=ConcludingLLM(), settings=_build_settings(default_max_rounds=20)
+        llm_client=ConcludingLLM(),
+        settings=_build_settings(
+            default_max_rounds=20,
+            min_rounds_before_conclusion=4,
+            min_rounds_before_repetition_stop=19,
+        ),
     )
     room = manager.create_room(subject="新機能検討", models=["m1", "m2"], seed=2)
 
@@ -167,7 +176,12 @@ async def test_room_stops_on_conclusion_signal() -> None:
 @pytest.mark.asyncio
 async def test_room_stops_on_repetition() -> None:
     manager = RoomManager(
-        llm_client=RepeatingLLM(), settings=_build_settings(default_max_rounds=20)
+        llm_client=RepeatingLLM(),
+        settings=_build_settings(
+            default_max_rounds=20,
+            min_rounds_before_conclusion=20,
+            min_rounds_before_repetition_stop=6,
+        ),
     )
     room = manager.create_room(subject="反復テスト", models=["m1", "m2"], seed=3)
 
@@ -192,3 +206,17 @@ async def test_room_stops_after_consecutive_failures() -> None:
     assert room.running is False
     assert room.fail_streak >= 2
     assert room.end_reason == "failures"
+
+
+@pytest.mark.asyncio
+async def test_room_emits_generation_logs() -> None:
+    manager = RoomManager(llm_client=StaticLLM(), settings=_build_settings(default_max_rounds=2))
+    room = manager.create_room(subject="ログ確認", models=["m1", "m2"], seed=5)
+
+    await manager.start_room(room.room_id)
+    await asyncio.sleep(0.05)
+
+    assert room.generation_logs
+    statuses = {log.status for log in room.generation_logs}
+    assert "requesting" in statuses
+    assert "completed" in statuses

@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from random import Random
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import WebSocket
 
 from app.config import Settings
-from app.models import AgentSpec, ChatMessage, Room
+from app.models import AgentSpec, ChatMessage, GenerationLog, Room
 from app.openrouter import LLMClient
 from app.persona import generate_personas
 
@@ -184,6 +185,14 @@ class RoomManager:
                 priority_message = room.pending_priority_message
                 room.pending_priority_message = None
 
+                await self._emit_generation_log(
+                    room=room,
+                    round_index=rounds + 1,
+                    model=speaker.model,
+                    display_name=speaker.display_name,
+                    act=room.current_act,
+                    status="requesting",
+                )
                 try:
                     content = await self._llm_client.generate_reply(
                         model=speaker.model,
@@ -197,8 +206,25 @@ class RoomManager:
                         priority_message=priority_message,
                     )
                     room.fail_streak = 0
+                    await self._emit_generation_log(
+                        room=room,
+                        round_index=rounds + 1,
+                        model=speaker.model,
+                        display_name=speaker.display_name,
+                        act=room.current_act,
+                        status="completed",
+                    )
                 except Exception as exc:  # noqa: BLE001
                     room.fail_streak += 1
+                    await self._emit_generation_log(
+                        room=room,
+                        round_index=rounds + 1,
+                        model=speaker.model,
+                        display_name=speaker.display_name,
+                        act=room.current_act,
+                        status="failed",
+                        detail=str(exc),
+                    )
                     await self._broadcast(
                         room,
                         {
@@ -250,12 +276,17 @@ class RoomManager:
                         repetition_streak = 0
                 previous_norm = normalized
 
-                if rounds >= 4 and has_conclusion_signal(content):
+                if rounds >= self._settings.min_rounds_before_conclusion and has_conclusion_signal(
+                    content
+                ):
                     room.running = False
                     end_reason = "conclusion"
                     break
 
-                if rounds >= 6 and repetition_streak >= 2:
+                if (
+                    rounds >= self._settings.min_rounds_before_repetition_stop
+                    and repetition_streak >= 2
+                ):
                     room.running = False
                     end_reason = "repetition"
                     break
@@ -312,6 +343,33 @@ class RoomManager:
         for websocket in dead_connections:
             room.ws_connections.discard(websocket)
 
+    async def _emit_generation_log(
+        self,
+        *,
+        room: Room,
+        round_index: int,
+        model: str,
+        display_name: str,
+        act: str,
+        status: Literal["requesting", "completed", "failed"],
+        detail: str = "",
+    ) -> None:
+        log = GenerationLog(
+            round_index=round_index,
+            model=model,
+            display_name=display_name,
+            act=act,
+            status=status,
+            detail=detail,
+        )
+        room.generation_logs.append(log)
+        if len(room.generation_logs) > 120:
+            room.generation_logs = room.generation_logs[-120:]
+        await self._broadcast(
+            room,
+            {"type": "generation_log", "payload": self._serialize_generation_log(log)},
+        )
+
     @staticmethod
     def _serialize_message(message: ChatMessage) -> dict[str, str]:
         return {
@@ -319,6 +377,18 @@ class RoomManager:
             "speaker_id": message.speaker_id,
             "content": message.content,
             "timestamp": message.timestamp,
+        }
+
+    @staticmethod
+    def _serialize_generation_log(log: GenerationLog) -> dict[str, str | int]:
+        return {
+            "round_index": log.round_index,
+            "model": log.model,
+            "display_name": log.display_name,
+            "act": log.act,
+            "status": log.status,
+            "detail": log.detail,
+            "timestamp": log.timestamp,
         }
 
     @staticmethod
@@ -374,6 +444,9 @@ class RoomManager:
                 "current_act": room.current_act,
                 "rounds_completed": room.rounds_completed,
                 "end_reason": room.end_reason,
+                "generation_logs": [
+                    RoomManager._serialize_generation_log(log) for log in room.generation_logs
+                ],
                 "agents": [
                     {
                         "agent_id": agent.agent_id,
