@@ -35,6 +35,7 @@ type SnapshotPayload = {
   room_id: string
   subject: string
   running: boolean
+  paused?: boolean
   current_act: string
   rounds_completed: number
   end_reason?: string | null
@@ -49,6 +50,11 @@ type SnapshotPayload = {
 type SocketEvent = {
   type: 'room_snapshot' | 'room_state' | 'message' | 'generation_log' | 'error'
   payload: unknown
+}
+
+type AccessResult = {
+  status: 'completed' | 'failed'
+  displayName: string
 }
 
 type GenerationLog = {
@@ -134,6 +140,11 @@ function modeLabel(mode: ConversationMode): string {
   return MODE_OPTIONS.find((item) => item.value === mode)?.label ?? mode
 }
 
+function runStateLabel(running: boolean, paused: boolean): string {
+  if (!running) return '停止中'
+  return paused ? '一時停止中' : '実行中'
+}
+
 function messageKey(message: ChatMessage, index: number): string {
   return `${message.timestamp}-${index}`
 }
@@ -174,12 +185,15 @@ function App() {
   const [pinnedMessageKeys, setPinnedMessageKeys] = useState<string[]>([])
   const [userInput, setUserInput] = useState('')
   const [running, setRunning] = useState(false)
+  const [paused, setPaused] = useState(false)
   const [currentAct, setCurrentAct] = useState('導入')
   const [roundsCompleted, setRoundsCompleted] = useState(0)
   const [status, setStatus] = useState('お題を入れて部屋を作成してください。')
+  const [activeRequestModel, setActiveRequestModel] = useState<string | null>(null)
+  const [lastAccessResult, setLastAccessResult] = useState<AccessResult | null>(null)
 
   const [densityMode, setDensityMode] = useState<DensityMode>('standard')
-  const [theaterMode, setTheaterMode] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const socketRef = useRef<WebSocket | null>(null)
   const messageListRef = useRef<HTMLUListElement | null>(null)
@@ -261,6 +275,7 @@ function App() {
         setMessages(payload.messages ?? [])
         setGenerationLogs(payload.generation_logs ?? [])
         setRunning(payload.running)
+        setPaused(payload.paused ?? false)
         setCurrentAct(payload.current_act ?? '導入')
         setRoundsCompleted(payload.rounds_completed ?? 0)
         return
@@ -268,11 +283,13 @@ function App() {
       if (parsed.type === 'room_state') {
         const payload = parsed.payload as {
           running: boolean
+          paused?: boolean
           current_act?: string
           rounds_completed?: number
           end_reason?: string | null
         }
         setRunning(payload.running)
+        setPaused(payload.paused ?? false)
         if (payload.current_act) {
           setCurrentAct(payload.current_act)
         }
@@ -282,6 +299,7 @@ function App() {
         if (!payload.running && payload.end_reason) {
           const reason = END_REASON_LABEL[payload.end_reason] ?? payload.end_reason
           setStatus(`会話終了: ${reason}`)
+          setActiveRequestModel(null)
         }
         return
       }
@@ -295,8 +313,14 @@ function App() {
         setGenerationLogs((prev) => [...prev, payload].slice(-120))
         if (payload.status === 'requesting') {
           setStatus(`アクセス中: ${payload.display_name} (${payload.act})`)
+          setActiveRequestModel(payload.display_name)
         } else if (payload.status === 'failed') {
           setStatus(`呼び出し失敗: ${payload.display_name}`)
+          setActiveRequestModel(null)
+          setLastAccessResult({ status: 'failed', displayName: payload.display_name })
+        } else if (payload.status === 'completed') {
+          setActiveRequestModel(null)
+          setLastAccessResult({ status: 'completed', displayName: payload.display_name })
         }
         return
       }
@@ -352,6 +376,10 @@ function App() {
       setCurrentAct('導入')
       setRoundsCompleted(0)
       setRunning(false)
+      setPaused(false)
+      setActiveRequestModel(null)
+      setLastAccessResult(null)
+      setSidebarCollapsed(false)
       setStatus(`部屋 ${payload.room_id} を作成しました。`)
       connectWebSocket(payload.room_id)
     } catch (error) {
@@ -368,8 +396,37 @@ function App() {
         body: JSON.stringify({}),
       })
       setStatus('会話を開始しました。')
+      setPaused(false)
     } catch (error) {
       setStatus(`開始に失敗しました: ${String(error)}`)
+    }
+  }
+
+  const pauseChat = async () => {
+    if (!room) return
+    try {
+      await requestJson<{ status: string }>(`${apiBase}/api/room/${room.room_id}/pause`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      setPaused(true)
+      setStatus('会話を一時停止しました。')
+    } catch (error) {
+      setStatus(`一時停止に失敗しました: ${String(error)}`)
+    }
+  }
+
+  const resumeChat = async () => {
+    if (!room) return
+    try {
+      await requestJson<{ status: string }>(`${apiBase}/api/room/${room.room_id}/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      setPaused(false)
+      setStatus('会話を再開しました。')
+    } catch (error) {
+      setStatus(`再開に失敗しました: ${String(error)}`)
     }
   }
 
@@ -381,6 +438,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
       })
       setStatus('終了要求を送信しました。')
+      setPaused(false)
     } catch (error) {
       setStatus(`終了要求に失敗しました: ${String(error)}`)
     }
@@ -409,7 +467,7 @@ function App() {
         body: JSON.stringify(payload),
       })
       applyRoomPayload(updated)
-      setStatus(running ? '速度設定を反映しました。' : '会話設定を反映しました。')
+      setStatus(running ? '待機時間設定を反映しました。' : '議論設定を反映しました。')
     } catch (error) {
       setStatus(`設定反映に失敗しました: ${String(error)}`)
     }
@@ -424,7 +482,7 @@ function App() {
         body: JSON.stringify({ turn_interval_seconds: next }),
       })
       applyRoomPayload(updated)
-      setStatus(`会話速度を ${speedLabel(next)} に変更しました。`)
+      setStatus(`待機時間を ${speedLabel(next)} に変更しました。`)
     } catch (error) {
       setStatus(`速度変更に失敗しました: ${String(error)}`)
     }
@@ -470,6 +528,9 @@ function App() {
     setCurrentAct('導入')
     setRoundsCompleted(0)
     setRunning(false)
+    setPaused(false)
+    setActiveRequestModel(null)
+    setLastAccessResult(null)
     setStatus('新しい部屋を作成してください。')
   }
 
@@ -494,7 +555,7 @@ function App() {
           </label>
 
           <div className="field">
-            <span>会話モード</span>
+            <span>議論の進め方</span>
             <select
               value={conversationMode}
               onChange={(event) => setConversationMode(event.target.value as ConversationMode)}
@@ -521,7 +582,7 @@ function App() {
           </label>
 
           <div className="field speed-row">
-            <span>会話速度</span>
+            <span>1発話ごとの待機時間</span>
             <select
               value={turnIntervalSeconds}
               onChange={(event) => setTurnIntervalSeconds(Number(event.target.value))}
@@ -554,28 +615,51 @@ function App() {
           </button>
         </section>
       ) : (
-        <section className={`room-layout ${theaterMode ? 'theater-mode' : ''}`}>
+        <section className={`room-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
           <article className="chat-panel">
             <div className="toolbar">
               <div className="toolbar-main">
                 <strong>Room: {room.room_id}</strong>
                 <p className="subject-line">お題: {room.subject}</p>
+                <div className="runtime-strip">
+                  <span className={`runtime-pill runtime-state-${running ? (paused ? 'paused' : 'running') : 'stopped'}`}>
+                    状態: {runStateLabel(running, paused)}
+                  </span>
+                  <span className="runtime-pill">
+                    {activeRequestModel ? `アクセス中: ${activeRequestModel}` : 'アクセス待機中'}
+                  </span>
+                  <span
+                    className={`runtime-pill ${
+                      lastAccessResult?.status === 'failed' ? 'runtime-last-failed' : 'runtime-last-completed'
+                    }`}
+                  >
+                    {lastAccessResult
+                      ? `直近: ${lastAccessResult.status === 'failed' ? '失敗' : '成功'} / ${lastAccessResult.displayName}`
+                      : '直近: まだ応答なし'}
+                  </span>
+                </div>
               </div>
               <div className="toolbar-badges">
                 <span className="act-badge">幕: {currentAct}</span>
                 <span className="act-badge">発話: {roundsCompleted}</span>
-                <span className="act-badge">モード: {modeLabel(conversationMode)}</span>
-                <span className="act-badge">速度: {speedLabel(turnIntervalSeconds)}</span>
+                <span className="act-badge">進め方: {modeLabel(conversationMode)}</span>
+                <span className="act-badge">待機時間: {speedLabel(turnIntervalSeconds)}</span>
               </div>
-              <div className="toolbar-buttons">
+              <div className="toolbar-buttons sticky-controls">
                 <button className="primary" onClick={startChat} disabled={running}>
                   開始
+                </button>
+                <button onClick={pauseChat} disabled={!running || paused}>
+                  一時停止
+                </button>
+                <button onClick={resumeChat} disabled={!running || !paused}>
+                  再開
                 </button>
                 <button onClick={concludeChat} disabled={!running}>
                   発展なしで終了
                 </button>
-                <button onClick={() => setTheaterMode((prev) => !prev)}>
-                  {theaterMode ? '通常表示' : 'シアター'}
+                <button onClick={() => setSidebarCollapsed((prev) => !prev)}>
+                  {sidebarCollapsed ? 'サイドバーを表示' : 'サイドバーを隠す'}
                 </button>
                 <button onClick={resetRoom}>リセット</button>
               </div>
@@ -594,7 +678,7 @@ function App() {
               </label>
 
               <label className="compact-control">
-                速度
+                待機時間
                 <select
                   value={turnIntervalSeconds}
                   onChange={(event) => onChangeSpeed(Number(event.target.value))}
@@ -654,9 +738,9 @@ function App() {
 
           <aside className="members-panel">
             <section className="config-panel">
-              <h2>会話設定</h2>
+              <h2>開始前の議論設定</h2>
               <label className="field compact-field">
-                <span>会話モード</span>
+                <span>議論の進め方</span>
                 <select
                   disabled={running}
                   value={conversationMode}
@@ -680,7 +764,7 @@ function App() {
                 />
               </label>
               <button className="primary" onClick={applyRoomConfig}>
-                {running ? '速度のみ反映' : '会話設定を反映'}
+                {running ? '待機時間のみ反映' : '議論設定を反映'}
               </button>
             </section>
 

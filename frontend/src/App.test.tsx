@@ -48,6 +48,8 @@ describe('App', () => {
   it('renders model presets', () => {
     render(<App />)
 
+    expect(screen.getByText('議論の進め方')).toBeInTheDocument()
+    expect(screen.getByText('1発話ごとの待機時間')).toBeInTheDocument()
     expect(screen.getByText('moonshotai/kimi-k2.5')).toBeInTheDocument()
     expect(screen.getByText('deepseek/deepseek-v3.2')).toBeInTheDocument()
     expect(screen.getByText('minimax/minimax-m2.1')).toBeInTheDocument()
@@ -364,6 +366,79 @@ describe('App', () => {
     )
   })
 
+  it('calls pause and resume endpoints and updates runtime state', async () => {
+    const mockedFetch = vi.mocked(fetch)
+    mockedFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            room_id: 'room-4b',
+            subject: '運用',
+            conversation_mode: 'philosophy_debate',
+            global_instruction: '',
+            turn_interval_seconds: 0.5,
+            agents: [
+              {
+                agent_id: 'agent-1',
+                model: 'm1',
+                display_name: 'm1',
+                role_type: 'facilitator',
+                character_profile: '',
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'paused' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'running' }), { status: 200 }))
+
+    render(<App />)
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
+      '運用',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
+    expect(await screen.findByText('Room: room-4b')).toBeInTheDocument()
+
+    act(() => {
+      MockWebSocket.instances[0].emit({
+        type: 'room_state',
+        payload: {
+          running: true,
+          paused: false,
+          current_act: '衝突',
+          rounds_completed: 2,
+        },
+      })
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: '一時停止' }))
+    expect(mockedFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/room/room-4b/pause'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+
+    act(() => {
+      MockWebSocket.instances[0].emit({
+        type: 'room_state',
+        payload: {
+          running: true,
+          paused: true,
+          current_act: '衝突',
+          rounds_completed: 2,
+        },
+      })
+    })
+    expect(await screen.findByText('状態: 一時停止中')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '再開' }))
+    expect(mockedFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/room/room-4b/resume'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
   it('applies conversation config before start', async () => {
     const mockedFetch = vi.mocked(fetch)
     mockedFetch
@@ -424,7 +499,7 @@ describe('App', () => {
     await userEvent.type(screen.getByPlaceholderText('開始前なら自由に調整できます'), '倫理面を優先する')
     await userEvent.selectOptions(screen.getAllByRole('combobox')[1], '0.2')
 
-    await userEvent.click(screen.getByRole('button', { name: '会話設定を反映' }))
+    await userEvent.click(screen.getByRole('button', { name: '議論設定を反映' }))
 
     await waitFor(() => {
       expect(mockedFetch).toHaveBeenCalledWith(
@@ -437,7 +512,7 @@ describe('App', () => {
     })
   })
 
-  it('supports theater toggle and message pinning', async () => {
+  it('supports sidebar collapse toggle and message pinning', async () => {
     const mockedFetch = vi.mocked(fetch)
     mockedFetch.mockResolvedValueOnce(
       new Response(
@@ -482,8 +557,8 @@ describe('App', () => {
     })
 
     const layout = screen.getByText('Room: room-6').closest('section')
-    await userEvent.click(screen.getByRole('button', { name: 'シアター' }))
-    expect(layout?.className).toContain('theater-mode')
+    await userEvent.click(screen.getByRole('button', { name: 'サイドバーを隠す' }))
+    expect(layout?.className).toContain('sidebar-collapsed')
 
     await userEvent.click(screen.getByRole('button', { name: 'ピン' }))
     const pinnedTexts = await screen.findAllByText('この主張は価値基準の定義を先に置くべきです。')
