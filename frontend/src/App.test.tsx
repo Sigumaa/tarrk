@@ -52,6 +52,7 @@ describe('App', () => {
     expect(screen.getByText('google/gemini-3-flash-preview')).toBeInTheDocument()
     expect(screen.getByText('anthropic/claude-sonnet-4.5')).toBeInTheDocument()
     expect(screen.getByText('x-ai/grok-4.1-fast')).toBeInTheDocument()
+    expect(screen.queryByText('google/gemini-2.0-flash')).not.toBeInTheDocument()
   })
 
   it('creates room and renders websocket messages with model display names', async () => {
@@ -228,5 +229,55 @@ describe('App', () => {
 
     expect(await screen.findByText('呼び出し失敗: m1')).toBeInTheDocument()
     expect(await screen.findByText('幕: 具体化 / OpenRouter API error')).toBeInTheDocument()
+  })
+
+  it('calls conclude endpoint when user clicks the conclude button', async () => {
+    const mockedFetch = vi.mocked(fetch)
+    mockedFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            room_id: 'room-4',
+            subject: '結論判断',
+            agents: [
+              {
+                agent_id: 'agent-1',
+                model: 'm1',
+                display_name: 'm1',
+                role_type: 'facilitator',
+                character_profile: '',
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'concluded' }), { status: 200 }))
+
+    render(<App />)
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 1時間で作れる面白いWebサービス案を考える'),
+      '結論判断',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
+    expect(await screen.findByText('Room: room-4')).toBeInTheDocument()
+
+    act(() => {
+      MockWebSocket.instances[0].emit({
+        type: 'room_state',
+        payload: {
+          running: true,
+          current_act: '衝突',
+          rounds_completed: 4,
+        },
+      })
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: '発展なしで終了' }))
+
+    expect(mockedFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/room/room-4/conclude'),
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 })

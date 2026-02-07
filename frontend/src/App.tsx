@@ -43,12 +43,6 @@ type SocketEvent = {
   payload: unknown
 }
 
-type Highlights = {
-  quote: string
-  conflict: string
-  agreement: string
-}
-
 type GenerationLog = {
   round_index: number
   model: string
@@ -61,44 +55,18 @@ type GenerationLog = {
 
 const MODEL_OPTIONS = [
   'openai/gpt-4o-mini',
-  'anthropic/claude-3.5-sonnet',
-  'google/gemini-2.0-flash',
-  'meta-llama/llama-3.3-70b-instruct',
   'moonshotai/kimi-k2.5',
   'google/gemini-3-flash-preview',
   'anthropic/claude-sonnet-4.5',
   'x-ai/grok-4.1-fast',
+  'meta-llama/llama-3.3-70b-instruct',
 ]
 
-const CONFLICT_HINTS = ['しかし', 'でも', '一方', 'ただ', '反対', '懸念']
-const AGREEMENT_HINTS = ['結論', '合意', '一致', '最終的に', 'まとめると', 'これでいく']
-
-function deriveHighlights(messages: ChatMessage[]): Highlights {
-  const agentMessages = messages.filter((message) => message.role === 'agent')
-  if (agentMessages.length === 0) {
-    return {
-      quote: '会話が進むと、ここに刺さった一言が表示されます。',
-      conflict: '対立点はまだありません。',
-      agreement: '合意点はまだありません。',
-    }
-  }
-
-  const quoteSource = [...agentMessages]
-    .reverse()
-    .find((message) => message.speaker_id !== '総括')
-  const quote = quoteSource?.content ?? agentMessages[agentMessages.length - 1].content
-
-  const conflictSource = [...agentMessages]
-    .reverse()
-    .find((message) => CONFLICT_HINTS.some((hint) => message.content.includes(hint)))
-  const conflict = conflictSource?.content ?? '対立点はまだ抽出中です。'
-
-  const agreementSource = [...agentMessages]
-    .reverse()
-    .find((message) => AGREEMENT_HINTS.some((hint) => message.content.includes(hint)))
-  const agreement = agreementSource?.content ?? '合意点はまだ抽出中です。'
-
-  return { quote, conflict, agreement }
+const END_REASON_LABEL: Record<string, string> = {
+  max_rounds: 'ラウンド上限に到達',
+  manual_stop: '手動停止',
+  user_concluded: '発展なしで終了',
+  failures: '連続エラー',
 }
 
 async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
@@ -128,8 +96,7 @@ function App() {
   const [roundsCompleted, setRoundsCompleted] = useState(0)
   const [status, setStatus] = useState('お題を入れて部屋を作成してください。')
   const socketRef = useRef<WebSocket | null>(null)
-
-  const highlights = useMemo(() => deriveHighlights(messages), [messages])
+  const messageListRef = useRef<HTMLUListElement | null>(null)
 
   useEffect(() => {
     return () => {
@@ -138,6 +105,12 @@ function App() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    const list = messageListRef.current
+    if (!list) return
+    list.scrollTop = list.scrollHeight
+  }, [messages])
 
   const connectWebSocket = (roomId: string) => {
     if (socketRef.current) {
@@ -180,7 +153,8 @@ function App() {
           setRoundsCompleted(payload.rounds_completed)
         }
         if (!payload.running && payload.end_reason) {
-          setStatus(`会話を終了しました: ${payload.end_reason}`)
+          const reason = END_REASON_LABEL[payload.end_reason] ?? payload.end_reason
+          setStatus(`会話終了: ${reason}`)
         }
         return
       }
@@ -268,16 +242,16 @@ function App() {
     }
   }
 
-  const stopChat = async () => {
+  const concludeChat = async () => {
     if (!room) return
     try {
-      await requestJson<{ status: string }>(`${apiBase}/api/room/${room.room_id}/stop`, {
+      await requestJson<{ status: string }>(`${apiBase}/api/room/${room.room_id}/conclude`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })
-      setStatus('会話を停止しました。')
+      setStatus('終了要求を送信しました。')
     } catch (error) {
-      setStatus(`停止に失敗しました: ${String(error)}`)
+      setStatus(`終了要求に失敗しました: ${String(error)}`)
     }
   }
 
@@ -354,9 +328,9 @@ function App() {
         <section className="room-layout">
           <article className="chat-panel">
             <div className="toolbar">
-              <div>
+              <div className="toolbar-main">
                 <strong>Room: {room.room_id}</strong>
-                <p>お題: {room.subject}</p>
+                <p className="subject-line">お題: {room.subject}</p>
               </div>
               <div className="toolbar-badges">
                 <span className="act-badge">幕: {currentAct}</span>
@@ -366,29 +340,14 @@ function App() {
                 <button className="primary" onClick={startChat} disabled={running}>
                   開始
                 </button>
-                <button onClick={stopChat} disabled={!running}>
-                  停止
+                <button onClick={concludeChat} disabled={!running}>
+                  発展なしで終了
                 </button>
                 <button onClick={resetRoom}>リセット</button>
               </div>
             </div>
 
-            <section className="highlights">
-              <article className="highlight-card">
-                <h3>刺さった一言</h3>
-                <p>{highlights.quote}</p>
-              </article>
-              <article className="highlight-card">
-                <h3>対立点</h3>
-                <p>{highlights.conflict}</p>
-              </article>
-              <article className="highlight-card">
-                <h3>合意点</h3>
-                <p>{highlights.agreement}</p>
-              </article>
-            </section>
-
-            <ul className="message-list">
+            <ul className="message-list" ref={messageListRef}>
               {messages.length === 0 ? (
                 <li className="empty">会話はまだありません。開始してみましょう。</li>
               ) : (
@@ -420,7 +379,9 @@ function App() {
 
           <aside className="members-panel">
             <h2>参加モデル</h2>
-            <p className="members-note">役割は自動設定です（司会1名 + キャラクター）。</p>
+            <p className="members-note">
+              役割は自動設定です（ファシリテーター1名 + お題依存キャラクター）。
+            </p>
             <ul className="members-list">
               {room.agents.map((agent) => (
                 <li key={agent.agent_id} className="member-item">
