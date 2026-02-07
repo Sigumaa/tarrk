@@ -2,11 +2,11 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.6rem;
   height: 100vh;
   margin: 0;
   overflow: hidden;
-  padding: 0.75rem;
+  padding: 0.72rem;
   width: 100%;
 }
 
@@ -14,7 +14,7 @@
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem 1rem;
+  gap: 0.6rem 0.95rem;
 }
 
 .eyebrow {
@@ -36,12 +36,12 @@
   border: 1px solid #d1d5db;
   border-radius: 0.55rem;
   color: #334155;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   margin: 0;
   max-width: 100%;
   min-height: 2rem;
   overflow: hidden;
-  padding: 0.36rem 0.6rem;
+  padding: 0.34rem 0.56rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -52,28 +52,36 @@
   border-radius: 0.75rem;
   display: grid;
   gap: 0.85rem;
-  padding: 0.9rem;
+  overflow: auto;
+  padding: 0.92rem;
 }
 
 .field {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.34rem;
 }
 
 .field > span {
   color: #1f2937;
-  font-size: 0.84rem;
+  font-size: 0.83rem;
   font-weight: 700;
 }
 
+.field-help {
+  color: #64748b;
+  font-size: 0.78rem;
+  margin: 0;
+}
+
 input,
-textarea {
+textarea,
+select {
   background: #ffffff;
   border: 1px solid #cbd5e1;
-  border-radius: 0.5rem;
+  border-radius: 0.48rem;
   color: #0f172a;
   font: inherit;
-  padding: 0.52rem 0.62rem;
+  padding: 0.5rem 0.6rem;
 }
 
 textarea {
@@ -91,17 +99,29 @@ textarea {
   border: 1px solid #e2e8f0;
   border-radius: 0.5rem;
   display: flex;
-  font-size: 0.9rem;
-  gap: 0.55rem;
-  padding: 0.45rem 0.55rem;
+  font-size: 0.88rem;
+  gap: 0.5rem;
+  padding: 0.44rem 0.52rem;
+}
+
+.speed-row {
+  max-width: 260px;
 }
 
 .room-layout {
   display: grid;
   flex: 1;
-  gap: 0.7rem;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 0.68rem;
+  grid-template-columns: minmax(0, 1fr) 340px;
   min-height: 0;
+}
+
+.room-layout.theater-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.room-layout.theater-mode .members-panel {
+  display: none;
 }
 
 .chat-panel,
@@ -122,14 +142,15 @@ textarea {
 .members-panel {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.56rem;
+  overflow: hidden;
 }
 
 .toolbar {
   align-items: center;
   border-bottom: 1px solid #edf1f5;
   display: flex;
-  gap: 0.6rem;
+  gap: 0.55rem;
   justify-content: space-between;
   padding-bottom: 0.5rem;
 }
@@ -149,7 +170,8 @@ textarea {
 
 .toolbar-badges {
   display: flex;
-  gap: 0.35rem;
+  flex-wrap: wrap;
+  gap: 0.34rem;
 }
 
 .act-badge {
@@ -157,14 +179,15 @@ textarea {
   border: 1px solid #dbe2eb;
   border-radius: 999px;
   color: #334155;
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 700;
-  padding: 0.19rem 0.52rem;
+  padding: 0.18rem 0.5rem;
 }
 
 .toolbar-buttons {
   display: flex;
-  gap: 0.38rem;
+  flex-wrap: wrap;
+  gap: 0.36rem;
 }
 
 button {
@@ -174,9 +197,9 @@ button {
   color: #0f172a;
   cursor: pointer;
   font: inherit;
-  font-size: 0.83rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  padding: 0.42rem 0.62rem;
+  padding: 0.4rem 0.62rem;
 }
 
 button:disabled {
@@ -190,27 +213,51 @@ button:disabled {
   color: #ffffff;
 }
 
+.display-controls {
+  align-items: center;
+  display: flex;
+  gap: 0.52rem;
+}
+
+.compact-control {
+  align-items: center;
+  color: #475569;
+  display: flex;
+  font-size: 0.8rem;
+  gap: 0.32rem;
+}
+
+.compact-control select {
+  padding: 0.25rem 0.36rem;
+}
+
 .message-list {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 0.42rem;
+  gap: 0.44rem;
   list-style: none;
   margin: 0;
   min-height: 0;
   overflow: auto;
-  padding: 0.08rem 0.15rem 0.08rem 0;
+  padding: 0.04rem 0.14rem 0.06rem 0;
 }
 
 .msg {
   border: 1px solid #e2e8f0;
   border-radius: 0.62rem;
-  padding: 0.46rem 0.54rem;
+  padding: 0.45rem 0.54rem;
+}
+
+.msg-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
 }
 
 .msg p {
-  line-height: 1.43;
-  margin: 0.16rem 0;
+  line-height: 1.42;
+  margin: 0.14rem 0;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -219,6 +266,32 @@ button:disabled {
   color: #475569;
   font-size: 0.73rem;
   font-weight: 700;
+}
+
+.pin-button {
+  border-radius: 0.35rem;
+  font-size: 0.7rem;
+  padding: 0.16rem 0.34rem;
+}
+
+.pin-button.active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.density-compact {
+  gap: 0.28rem;
+}
+
+.density-compact .msg {
+  border-radius: 0.48rem;
+  padding: 0.34rem 0.42rem;
+}
+
+.density-compact .msg p {
+  font-size: 0.86rem;
+  line-height: 1.35;
+  margin: 0.1rem 0;
 }
 
 .msg-user {
@@ -256,23 +329,90 @@ button:disabled {
   padding-top: 0.5rem;
 }
 
-.members-panel h2 {
-  font-size: 1rem;
+.config-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.52rem;
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.45rem;
+}
+
+.config-panel h2 {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.compact-field > span {
+  font-size: 0.78rem;
+}
+
+.compact-field textarea {
+  min-height: 5.2rem;
+}
+
+.pins-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.52rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+  padding: 0.45rem;
+}
+
+.pins-panel h3 {
+  font-size: 0.84rem;
+  margin: 0;
+}
+
+.pins-list {
+  display: grid;
+  gap: 0.34rem;
+  list-style: none;
+  margin: 0.4rem 0 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+}
+
+.pin-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.46rem;
+  padding: 0.32rem 0.38rem;
+}
+
+.pin-speaker {
+  color: #334155;
+  font-size: 0.73rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.pin-content {
+  color: #1f2937;
+  font-size: 0.74rem;
+  margin: 0.14rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.members-panel h3 {
+  font-size: 0.84rem;
   margin: 0;
 }
 
 .members-note {
   color: #64748b;
-  font-size: 0.8rem;
-  margin: 0;
+  font-size: 0.78rem;
+  margin: 0.18rem 0 0.26rem;
 }
 
 .members-list {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.38rem;
   list-style: none;
   margin: 0;
-  max-height: 34%;
+  max-height: 26%;
   min-height: 0;
   overflow: auto;
   padding: 0;
@@ -282,24 +422,24 @@ button:disabled {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 0.5rem;
-  padding: 0.48rem;
+  padding: 0.45rem;
 }
 
 .member-name {
-  font-size: 0.82rem;
+  font-size: 0.81rem;
   font-weight: 700;
   margin: 0;
 }
 
 .member-role {
   color: #1e293b;
-  font-size: 0.75rem;
-  margin: 0.15rem 0 0.23rem;
+  font-size: 0.74rem;
+  margin: 0.14rem 0 0.22rem;
 }
 
 .member-character {
   color: #334155;
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   margin: 0;
 }
 
@@ -310,20 +450,15 @@ button:disabled {
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-height: 0;
-  padding: 0.45rem;
-}
-
-.logs-panel h3 {
-  font-size: 0.84rem;
-  margin: 0;
+  min-height: 160px;
+  padding: 0.44rem;
 }
 
 .logs-list {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.34rem;
   list-style: none;
-  margin: 0.42rem 0 0;
+  margin: 0.38rem 0 0;
   min-height: 0;
   overflow: auto;
   padding: 0;
@@ -333,7 +468,7 @@ button:disabled {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 0.45rem;
-  padding: 0.35rem 0.45rem;
+  padding: 0.34rem 0.42rem;
 }
 
 .log-item p {
@@ -348,8 +483,8 @@ button:disabled {
 
 .log-sub {
   color: #64748b;
-  font-size: 0.72rem;
-  margin-top: 0.12rem;
+  font-size: 0.71rem;
+  margin-top: 0.11rem;
 }
 
 .log-requesting {
@@ -369,8 +504,19 @@ button:disabled {
   border-radius: 0.4rem;
   color: #64748b;
   font-size: 0.76rem;
-  padding: 0.45rem;
+  padding: 0.42rem;
   text-align: center;
+}
+
+@media (max-width: 1280px) {
+  .toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbar-buttons {
+    width: 100%;
+  }
 }
 
 @media (max-width: 1100px) {
@@ -380,8 +526,13 @@ button:disabled {
     overflow: visible;
   }
 
-  .room-layout {
+  .room-layout,
+  .room-layout.theater-mode {
     grid-template-columns: 1fr;
+  }
+
+  .room-layout.theater-mode .members-panel {
+    display: flex;
   }
 
   .message-list {
@@ -393,6 +544,6 @@ button:disabled {
   }
 
   .logs-panel {
-    min-height: 240px;
+    min-height: 220px;
   }
 }

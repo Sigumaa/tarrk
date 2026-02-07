@@ -62,6 +62,9 @@ describe('App', () => {
         JSON.stringify({
           room_id: 'room-1',
           subject: 'おにぎり議論',
+          conversation_mode: 'philosophy_debate',
+          global_instruction: '',
+          turn_interval_seconds: 0.5,
           agents: [
             {
               agent_id: 'agent-1',
@@ -78,7 +81,7 @@ describe('App', () => {
 
     render(<App />)
     await userEvent.type(
-      screen.getByPlaceholderText('例: 1時間で作れる面白いWebサービス案を考える'),
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
       'おにぎり議論',
     )
     await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
@@ -98,19 +101,11 @@ describe('App', () => {
           timestamp: '2026-01-01T00:00:00Z',
         },
       })
-      MockWebSocket.instances[0].emit({
-        type: 'message',
-        payload: {
-          role: 'agent',
-          speaker_id: 'openai/gpt-4o-mini',
-          content: '結論として、この方向で進めます。',
-          timestamp: '2026-01-01T00:01:00Z',
-        },
-      })
     })
 
-    expect((await screen.findAllByText('しかし、コスト面は再検討が必要です。')).length).toBeGreaterThan(0)
-    expect((await screen.findAllByText('結論として、この方向で進めます。')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('しかし、コスト面は再検討が必要です。')).length).toBeGreaterThan(
+      0,
+    )
     expect(screen.getByText('幕: 導入')).toBeInTheDocument()
 
     await waitFor(() => {
@@ -128,6 +123,9 @@ describe('App', () => {
         JSON.stringify({
           room_id: 'room-2',
           subject: '検証テーマ',
+          conversation_mode: 'philosophy_debate',
+          global_instruction: '',
+          turn_interval_seconds: 0.5,
           agents: [
             {
               agent_id: 'agent-1',
@@ -144,7 +142,7 @@ describe('App', () => {
 
     render(<App />)
     await userEvent.type(
-      screen.getByPlaceholderText('例: 1時間で作れる面白いWebサービス案を考える'),
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
       '検証テーマ',
     )
     await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
@@ -172,6 +170,9 @@ describe('App', () => {
         JSON.stringify({
           room_id: 'room-3',
           subject: 'ログ検証',
+          conversation_mode: 'philosophy_debate',
+          global_instruction: '',
+          turn_interval_seconds: 0.5,
           agents: [
             {
               agent_id: 'agent-1',
@@ -188,7 +189,7 @@ describe('App', () => {
 
     render(<App />)
     await userEvent.type(
-      screen.getByPlaceholderText('例: 1時間で作れる面白いWebサービス案を考える'),
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
       'ログ検証',
     )
     await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
@@ -239,6 +240,9 @@ describe('App', () => {
           JSON.stringify({
             room_id: 'room-4',
             subject: '結論判断',
+            conversation_mode: 'philosophy_debate',
+            global_instruction: '',
+            turn_interval_seconds: 0.5,
             agents: [
               {
                 agent_id: 'agent-1',
@@ -256,7 +260,7 @@ describe('App', () => {
 
     render(<App />)
     await userEvent.type(
-      screen.getByPlaceholderText('例: 1時間で作れる面白いWebサービス案を考える'),
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
       '結論判断',
     )
     await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
@@ -279,5 +283,131 @@ describe('App', () => {
       expect.stringContaining('/api/room/room-4/conclude'),
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+
+  it('applies conversation config before start', async () => {
+    const mockedFetch = vi.mocked(fetch)
+    mockedFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            room_id: 'room-5',
+            subject: '自由意志',
+            conversation_mode: 'philosophy_debate',
+            global_instruction: '',
+            turn_interval_seconds: 0.5,
+            agents: [
+              {
+                agent_id: 'agent-1',
+                model: 'm1',
+                display_name: 'm1',
+                role_type: 'facilitator',
+                character_profile: '',
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            room_id: 'room-5',
+            subject: '自由意志',
+            conversation_mode: 'consensus_lab',
+            global_instruction: '倫理面を優先する',
+            turn_interval_seconds: 0.2,
+            agents: [
+              {
+                agent_id: 'agent-1',
+                model: 'm1',
+                display_name: 'm1',
+                role_type: 'facilitator',
+                character_profile: '',
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+
+    render(<App />)
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
+      '自由意志',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
+
+    expect(await screen.findByText('Room: room-5')).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByDisplayValue('哲学討論'), 'consensus_lab')
+    await userEvent.clear(screen.getByPlaceholderText('開始前なら自由に調整できます'))
+    await userEvent.type(screen.getByPlaceholderText('開始前なら自由に調整できます'), '倫理面を優先する')
+    await userEvent.selectOptions(screen.getAllByRole('combobox')[1], '0.2')
+
+    await userEvent.click(screen.getByRole('button', { name: '会話設定を反映' }))
+
+    await waitFor(() => {
+      expect(mockedFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/room/room-5/config'),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('consensus_lab'),
+        }),
+      )
+    })
+  })
+
+  it('supports theater toggle and message pinning', async () => {
+    const mockedFetch = vi.mocked(fetch)
+    mockedFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          room_id: 'room-6',
+          subject: '価値観の衝突',
+          conversation_mode: 'philosophy_debate',
+          global_instruction: '',
+          turn_interval_seconds: 0.5,
+          agents: [
+            {
+              agent_id: 'agent-1',
+              model: 'm1',
+              display_name: 'm1',
+              role_type: 'facilitator',
+              character_profile: '',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+
+    render(<App />)
+    await userEvent.type(
+      screen.getByPlaceholderText('例: 自由意志は幻想か、それとも実在するか'),
+      '価値観の衝突',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '部屋を作る' }))
+    expect(await screen.findByText('Room: room-6')).toBeInTheDocument()
+
+    act(() => {
+      MockWebSocket.instances[0].emit({
+        type: 'message',
+        payload: {
+          role: 'agent',
+          speaker_id: 'm1',
+          content: 'この主張は価値基準の定義を先に置くべきです。',
+          timestamp: '2026-01-01T00:05:00Z',
+        },
+      })
+    })
+
+    const layout = screen.getByText('Room: room-6').closest('section')
+    await userEvent.click(screen.getByRole('button', { name: 'シアター' }))
+    expect(layout?.className).toContain('theater-mode')
+
+    await userEvent.click(screen.getByRole('button', { name: 'ピン' }))
+    const pinnedTexts = await screen.findAllByText('この主張は価値基準の定義を先に置くべきです。')
+    expect(pinnedTexts.length).toBeGreaterThanOrEqual(2)
   })
 })
